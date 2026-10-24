@@ -118,10 +118,23 @@
           }
         },
         {
+          "name": "Verify all README tools and resource against packed archive",
+          "if": "matrix.node == '20'",
+          "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.1.3-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
+        },
+        {
           "uses": "actions/upload-artifact@v4",
           "with": {
             "name": "mcp-installed-node${{ matrix.node }}",
             "path": "${{ runner.temp }}/mcp-consumer/audit.json\n${{ runner.temp }}/mcp-consumer/package-lock.json"
+          }
+        },
+        {
+          "uses": "actions/upload-artifact@v4",
+          "if": "matrix.node == '20'",
+          "with": {
+            "name": "mcp-all-tools-fixture",
+            "path": "readme-verification.json"
           }
         }
       ]

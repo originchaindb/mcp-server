@@ -29,7 +29,7 @@ async function connect(t, readOnly) {
   const transport = new StdioClientTransport({
     command: process.env.MCP_SERVER_PACKAGE ? 'npx' : process.execPath,
     args: process.env.MCP_SERVER_PACKAGE
-      ? ['--yes', resolve(process.env.MCP_SERVER_PACKAGE)]
+      ? ['--yes', '--package', resolve(process.env.MCP_SERVER_PACKAGE), 'originchain-mcp']
       : [resolve('dist/index.js')],
     env,
     stderr: 'pipe',

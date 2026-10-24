@@ -13,7 +13,7 @@ Use Node.js 20 or later. The GitHub preview
 fixes the SQL-prefix filter. Run its package directly with `npx`:
 
 ```sh
-npx -y https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz
+npx --yes --package https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz originchain-mcp
 ```
 
 That command requires the environment variables below and waits for MCP
@@ -28,7 +28,7 @@ this. Replace the three values with your database's connection details:
   "mcpServers": {
     "originchaindb": {
       "command": "npx",
-      "args": ["-y", "https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz"],
+      "args": ["--yes", "--package", "https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz", "originchain-mcp"],
       "env": {
         "OC_HOST": "https://your-database-host",
         "OC_TENANT": "your-tenant-id",
