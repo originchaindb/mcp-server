@@ -1,86 +1,183 @@
-# @originchain/mcp-server
+# OriginChainDB MCP server
 
-Model Context Protocol (MCP) server for OriginChain — auto-discoverable database access for any AI agent.
+Connect an MCP host to an OriginChainDB tenant through five tools: SQL,
+natural-language queries, vector search, full-text search, and schema discovery.
+The host starts this Node.js process and communicates over stdin/stdout. The
+process sends HTTP requests to your database; it does not start an HTTP MCP
+server.
 
-## Why MCP?
+## Install and connect
 
-AI agents (Claude Desktop, Cursor, Continue, Cline, Zed AI, and every IDE that speaks MCP) auto-discover this server and gain the ability to query your OriginChain instance using natural language, SQL, vector similarity, and full-text search — without you wiring anything per-app. Add the snippet below to your MCP host's config and the agent learns about your data.
+Use Node.js 20 or later. The published npm package is
+[`@originchain/mcp-server@0.1.2`](https://www.npmjs.com/package/@originchain/mcp-server/v/0.1.2).
+Pin the version when configuring your host:
 
-## Install
-
-Install globally:
-
-```bash
-npm install -g @originchain/mcp-server
+```sh
+npx -y @originchain/mcp-server@0.1.2
 ```
 
-Or run on demand via `npx` (no install):
+That command requires the environment variables below and waits for MCP
+messages on stdin. It is not an interactive SQL shell. The first launch may
+download the package and its dependencies.
 
-```bash
-npx -y @originchain/mcp-server
-```
-
-Requires Node.js 20 or newer.
-
-## Configure (Claude Desktop)
-
-Edit `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
+For a host whose configuration accepts an `mcpServers` object, add an entry like
+this. Replace the three values with your database's connection details:
 
 ```json
 {
   "mcpServers": {
-    "originchain": {
+    "originchaindb": {
       "command": "npx",
-      "args": ["-y", "@originchain/mcp-server"],
+      "args": ["-y", "@originchain/mcp-server@0.1.2"],
       "env": {
-        "OC_HOST": "https://abc123.api.originchain.ai",
-        "OC_TENANT": "01HZ...",
-        "OC_TOKEN": "oc_live_..."
+        "OC_HOST": "https://your-database-host",
+        "OC_TENANT": "your-tenant-id",
+        "OC_TOKEN": "your-bearer-token"
       }
     }
   }
 }
 ```
 
-Restart Claude Desktop. The five `oc_*` tools and the `originchain://schemas` resource become available to the assistant.
+Each host has its own configuration format and tool approval settings. Use its
+stdio-server instructions; some Windows launchers require `npx.cmd` or the full
+path to the executable. Reload the host after changing its configuration, then
+check that `oc_list_schemas` appears in its tool list. Resource attachment and
+tool execution depend on the host's settings.
 
-Cursor, Continue, Cline, Zed AI and other MCP hosts use the same JSON shape — consult their docs for the config file location.
+For a preinstalled executable instead of a package download at launch:
 
-## Tools
+```sh
+npm install --global @originchain/mcp-server@0.1.2
+originchain-mcp
+```
 
-| Name | Description |
-|---|---|
-| `oc_ask` | Natural-language query. Pass an English question; the engine plans and executes it. Optional `plan_only` flag returns the plan without running. |
-| `oc_sql` | Run a typed SQL `SELECT`. Returns rows as JSON. |
-| `oc_vector_topk` | Top-k vector similarity over a table. Inputs: `table`, `vector`, optional `k` (default 10), optional `mode` (`fast` \| `high_recall`, default `high_recall`). |
-| `oc_fts_search` | BM25 full-text search over a string field. Inputs: `table`, `field`, `query`, optional `limit` (default 20). |
-| `oc_list_schemas` | List schema IDs registered in the tenant. Use for discovery. |
+Set your host's command to `originchain-mcp` and omit `args` for that installation.
 
-## Resources
+## Connection settings
 
-- `originchain://schemas` — JSON list of schema IDs. MCP hosts that auto-attach resources will keep the schema list in context so the model knows what tables exist.
+| Variable | Required | Value |
+| --- | --- | --- |
+| `OC_HOST` | Yes | Database origin, such as `https://your-database-host`, without `/v1/tenants/...`. |
+| `OC_TENANT` | Yes | Tenant identifier. The server URL-encodes it in the request path. |
+| `OC_TOKEN` | Yes | Bearer token accepted by that database. |
+| `OC_MCP_READONLY` | No | Version 0.1.2 has a broken SQL filter when this is exactly `true`; see [Permissions and limitations](#permissions-and-limitations). |
 
-## Configuration
+Requests use `${OC_HOST}/v1/tenants/${OC_TENANT}` and an
+`Authorization: Bearer ...` header. This version has no configuration for paired
+`x-oc-db-user` / `x-oc-db-key` headers. A database that requires those headers
+cannot be accessed through this package as configured above.
 
-Three environment variables are required; the server fails fast on launch if any are missing.
+Use a trusted HTTPS origin in production. The package accepts HTTP URLs and
+uses the runtime's redirect behavior; it does not enforce HTTPS or an origin
+allowlist. Keep credentials out of checked-in host configuration. Use your
+host's secret handling when it provides one.
 
-| Var | Example | Purpose |
-|---|---|---|
-| `OC_HOST` | `https://abc123.api.originchain.ai` | Tenant base URL. |
-| `OC_TENANT` | `01HZ7K8F9M2N3P4Q5R6S7T8U9V` | Tenant ULID. |
-| `OC_TOKEN` | `oc_live_…` | Bearer token. |
+## Tools and inputs
 
-## Security
+These are the arguments supplied to MCP `tools/call`, not separate HTTP APIs.
+Names and types are case-sensitive.
 
-- The bearer token is read from environment variables and is **never logged**, never printed to stdout/stderr, and never echoed in tool output.
-- One bearer = full tenant access. Treat it like a database password. Store it in your OS keychain or your MCP host's secret store, not in checked-in files.
-- Read-only / scoped tokens are recommended once available — use them by default for AI-agent contexts so an LLM mistake cannot mutate state.
-- All traffic is HTTPS; the server only ever connects to the URL in `OC_HOST`.
+| Tool | Required arguments | Optional arguments | Request |
+| --- | --- | --- | --- |
+| `oc_list_schemas` | None (`{}`) | None | `GET /schemas` |
+| `oc_sql` | `sql`: string | None | `POST /sql` with `{ "sql": ... }` |
+| `oc_ask` | `nl`: string | `plan_only`: boolean | `POST /ask`; `plan_only: true` requests a plan without execution. |
+| `oc_vector_topk` | `table`: string, `vector`: number array | `k`: positive integer (10), `mode`: `"fast"` or `"high_recall"` (`"high_recall"`) | `POST /vector/{table}/topk`; maps `vector` to `query` and sets `dim` to its length. |
+| `oc_fts_search` | `table`: string, `field`: string, `query`: string | `limit`: positive integer (20) | `GET /fts/{table}/{field}?q=...&limit=...` |
 
-## Get a tenant
+Start with schema discovery, or run a query that does not require an existing
+table:
 
-Sign up and provision an OriginChain tenant: <https://originchain.ai/docs/quickstart>.
+```json
+{
+  "name": "oc_sql",
+  "arguments": { "sql": "SELECT 42 AS value" }
+}
+```
+
+For an existing table with indexed text, a full-text call looks like:
+
+```json
+{
+  "name": "oc_fts_search",
+  "arguments": {
+    "table": "documents",
+    "field": "body",
+    "query": "release notes",
+    "limit": 5
+  }
+}
+```
+
+Table names, indexed fields, vector dimensions, and Ask availability depend on
+your database. The FTS tool does not expose a search-mode argument, so it uses
+the engine's default mode; do not assume its results contain BM25 scores.
+The SQL tool accepts a statement string only; it has no bound-parameter input.
+
+Successful calls return one MCP text block containing the server response as
+formatted JSON, or unchanged text when the HTTP response is not JSON. The
+server does not normalize rows into a separate MCP result schema.
+
+The `originchain://schemas` resource makes the same `GET /schemas` request and
+returns its JSON with MIME type `application/json`. A host must explicitly read
+or attach it; listing the resource does not load schemas into every assistant.
+
+## Permissions and limitations
+
+**SQL is not read-only by default.** `oc_sql` forwards statements, including
+writes, to the database. The database's authorization rules determine which
+requests are allowed. `oc_ask` can execute a generated plan unless the caller
+sets `plan_only: true`; tool availability also depends on server features and
+entitlements. Configure host approval prompts and database permissions for the
+access you intend to grant.
+
+**Known issue in npm 0.1.2:** setting `OC_MCP_READONLY=true` rejects ordinary
+`SELECT` statements because its filter contains a literal backspace character
+where a word boundary was intended. It applies only to `oc_sql`, not `oc_ask`.
+Do not rely on this flag for read-only access. A statement-prefix check would
+also be insufficient as a database authorization boundary.
+
+This version does not configure request retries or a request timeout, and does
+not forward MCP cancellation to the HTTP request. A timeout in your MCP host
+does not guarantee the database operation was cancelled.
+
+## Errors and troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Process exits with `FATAL: env var ... is required and missing` | All three required variables must reach the child process; a host may not inherit your terminal environment. |
+| Host cannot start `npx` | Install Node.js 20+, check the host's executable path, or configure the installed `originchain-mcp` executable. |
+| Tool returns `isError: true` with HTTP 401 or 403 | Check the target host, tenant, token, and database permissions. |
+| Ask, search, or a table-specific query fails | Check server feature availability, indexes, dimensions, and the returned error body. |
+| An ordinary `SELECT` is rejected before an HTTP request | Check the broken `OC_MCP_READONLY=true` filter described above. |
+
+HTTP failures are returned as MCP tool errors with the method, path, status,
+and server response body. Argument errors are also returned with `isError:
+true`. Treat tool outputs as potentially sensitive database content: the
+response body is passed through without redaction. Startup diagnostics go to
+stderr and include the configured host and tenant; stdout is reserved for MCP.
+
+## Develop from source
+
+```sh
+git clone https://github.com/originchaindb/mcp-server.git
+cd mcp-server
+npm ci
+npm run build
+node dist/index.js
+```
+
+Set the required variables before the last command, or point your MCP host at
+`node` with the absolute path to `dist/index.js` as its argument. Tool schemas,
+argument handling, HTTP mapping, and stdio setup are in
+[`src/index.ts`](src/index.ts). `npm run build` type-checks and compiles the
+source; this repository does not currently define an `npm test` script.
+
+Report problems with the package version, Node.js version, tool name, and a
+redacted error at [GitHub issues](https://github.com/originchaindb/mcp-server/issues).
+Do not include tokens or private query results.
 
 ## License
 
-MIT — copyright (c) 2026 Silicoyn Technologies Pvt Ltd. See [LICENSE](./LICENSE).
+[MIT](LICENSE).
