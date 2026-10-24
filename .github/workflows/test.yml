@@ -32,10 +32,10 @@
       },
       "steps": [
         {
-          "uses": "actions/checkout@v4"
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         },
         {
-          "uses": "actions/setup-node@v4",
+          "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
           "with": {
             "node-version": "${{ matrix.node }}"
           }
@@ -59,10 +59,10 @@
       "timeout-minutes": 10,
       "steps": [
         {
-          "uses": "actions/checkout@v4"
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         },
         {
-          "uses": "actions/setup-node@v4",
+          "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
           "with": {
             "node-version": "20"
           }
@@ -71,7 +71,7 @@
           "run": "npm ci\nnpm run build\nmkdir release-package\nnpm pack --pack-destination release-package --json > release-package/pack.json\nsha256sum release-package/*.tgz > release-package/SHA256SUMS\nnpm audit --json > release-package/audit.json"
         },
         {
-          "uses": "actions/upload-artifact@v4",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
           "with": {
             "name": "mcp-preview-package",
             "path": "release-package/"
@@ -96,16 +96,16 @@
       },
       "steps": [
         {
-          "uses": "actions/checkout@v4"
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         },
         {
-          "uses": "actions/setup-node@v4",
+          "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
           "with": {
             "node-version": "${{ matrix.node }}"
           }
         },
         {
-          "uses": "actions/download-artifact@v4",
+          "uses": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
           "with": {
             "name": "mcp-preview-package",
             "path": "release-package"
@@ -123,14 +123,14 @@
           "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.1.3-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
         },
         {
-          "uses": "actions/upload-artifact@v4",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
           "with": {
             "name": "mcp-installed-node${{ matrix.node }}",
             "path": "${{ runner.temp }}/mcp-consumer/audit.json\n${{ runner.temp }}/mcp-consumer/package-lock.json"
           }
         },
         {
-          "uses": "actions/upload-artifact@v4",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
           "if": "matrix.node == '20'",
           "with": {
             "name": "mcp-all-tools-fixture",
