@@ -8,12 +8,12 @@ server.
 
 ## Install and connect
 
-Use Node.js 20 or later. The published npm package is
-[`@originchain/mcp-server@0.1.2`](https://www.npmjs.com/package/@originchain/mcp-server/v/0.1.2).
-Pin the version when configuring your host:
+Use Node.js 20 or later. The GitHub preview
+[`0.1.3-rc.1`](https://github.com/originchaindb/mcp-server/releases/tag/v0.1.3-rc.1)
+fixes the SQL-prefix filter. Run its package directly with `npx`:
 
 ```sh
-npx -y @originchain/mcp-server@0.1.2
+npx --yes --package https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz originchain-mcp
 ```
 
 That command requires the environment variables below and waits for MCP
@@ -28,7 +28,7 @@ this. Replace the three values with your database's connection details:
   "mcpServers": {
     "originchaindb": {
       "command": "npx",
-      "args": ["-y", "@originchain/mcp-server@0.1.2"],
+      "args": ["--yes", "--package", "https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz", "originchain-mcp"],
       "env": {
         "OC_HOST": "https://your-database-host",
         "OC_TENANT": "your-tenant-id",
@@ -48,11 +48,16 @@ tool execution depend on the host's settings.
 For a preinstalled executable instead of a package download at launch:
 
 ```sh
-npm install --global @originchain/mcp-server@0.1.2
+npm install --global https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz
 originchain-mcp
 ```
 
 Set your host's command to `originchain-mcp` and omit `args` for that installation.
+
+The npm registry still provides
+[`@originchain/mcp-server@0.1.2`](https://www.npmjs.com/package/@originchain/mcp-server/v/0.1.2).
+It has the read-only filter defect described below. The fixed preview is a
+GitHub release asset; it has not been published to npm.
 
 ## Connection settings
 
@@ -61,7 +66,7 @@ Set your host's command to `originchain-mcp` and omit `args` for that installati
 | `OC_HOST` | Yes | Database origin, such as `https://your-database-host`, without `/v1/tenants/...`. |
 | `OC_TENANT` | Yes | Tenant identifier. The server URL-encodes it in the request path. |
 | `OC_TOKEN` | Yes | Bearer token accepted by that database. |
-| `OC_MCP_READONLY` | No | Version 0.1.2 has a broken SQL filter when this is exactly `true`; see [Permissions and limitations](#permissions-and-limitations). |
+| `OC_MCP_READONLY` | No | When exactly `true`, applies the limited SQL-prefix filter in 0.1.3-rc.1; npm 0.1.2 has a defect. See [Permissions and limitations](#permissions-and-limitations). |
 
 Requests use `${OC_HOST}/v1/tenants/${OC_TENANT}` and an
 `Authorization: Bearer ...` header. This version has no configuration for paired
@@ -138,6 +143,11 @@ where a word boundary was intended. It applies only to `oc_sql`, not `oc_ask`.
 Do not rely on this flag for read-only access. A statement-prefix check would
 also be insufficient as a database authorization boundary.
 
+The GitHub preview 0.1.3-rc.1 corrects that character, so ordinary
+`SELECT` prefixes pass the filter. The correction is not in npm 0.1.2. The
+filter still applies only to `oc_sql`, rejects queries beginning with `WITH`
+or comments, and does not parse SQL or guarantee read-only execution.
+
 This version does not configure request retries or a request timeout, and does
 not forward MCP cancellation to the HTTP request. A timeout in your MCP host
 does not guarantee the database operation was cancelled.
@@ -150,7 +160,7 @@ does not guarantee the database operation was cancelled.
 | Host cannot start `npx` | Install Node.js 20+, check the host's executable path, or configure the installed `originchain-mcp` executable. |
 | Tool returns `isError: true` with HTTP 401 or 403 | Check the target host, tenant, token, and database permissions. |
 | Ask, search, or a table-specific query fails | Check server feature availability, indexes, dimensions, and the returned error body. |
-| An ordinary `SELECT` is rejected before an HTTP request | Check the broken `OC_MCP_READONLY=true` filter described above. |
+| An ordinary `SELECT` is rejected before an HTTP request | Check the package version: npm 0.1.2 has the filter defect described above; the GitHub preview fixes it. |
 
 HTTP failures are returned as MCP tool errors with the method, path, status,
 and server response body. Argument errors are also returned with `isError:
@@ -164,7 +174,7 @@ stderr and include the configured host and tenant; stdout is reserved for MCP.
 git clone https://github.com/originchaindb/mcp-server.git
 cd mcp-server
 npm ci
-npm run build
+npm test
 node dist/index.js
 ```
 
@@ -172,7 +182,9 @@ Set the required variables before the last command, or point your MCP host at
 `node` with the absolute path to `dist/index.js` as its argument. Tool schemas,
 argument handling, HTTP mapping, and stdio setup are in
 [`src/index.ts`](src/index.ts). `npm run build` type-checks and compiles the
-source; this repository does not currently define an `npm test` script.
+source. `npm test` also exercises the compiled stdio server against a local
+HTTP fixture, including SELECT prefixes, rejected inputs, and the SQL-only
+scope of the flag.
 
 Report problems with the package version, Node.js version, tool name, and a
 redacted error at [GitHub issues](https://github.com/originchaindb/mcp-server/issues).

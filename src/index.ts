@@ -154,7 +154,7 @@ const TOOLS = [
   {
     name: "oc_sql",
     description:
-      "Run a SQL statement against the OriginChain tenant (SELECT and DELETE are supported by the engine; the bearer token's permissions govern what is allowed). Returns rows as JSON. Set OC_MCP_READONLY=true on the server to hard-reject anything but SELECT.",
+      "Run a SQL statement against the OriginChain tenant (SELECT and DELETE are supported by the engine; the bearer token's permissions govern what is allowed). Returns rows as JSON. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
     inputSchema: {
       type: "object",
       properties: {
@@ -331,14 +331,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
       case "oc_sql": {
         if (typeof args.sql !== "string") throw new Error("`sql` must be a string");
-        // Agent-safety valve: an MCP server wired into an autonomous agent with
-        // a full-access bearer would otherwise pass writes straight through.
+        // Optional SQL prefix filter only. This is not a SQL parser or an
+        // authorization boundary, and it does not restrict other tools.
         if (
           process.env.OC_MCP_READONLY === "true" &&
-          !/^\s*select/i.test(args.sql)
+          !/^\s*select\b/i.test(args.sql)
         ) {
           throw new Error(
-            "OC_MCP_READONLY=true — only SELECT statements are allowed on this server",
+            "OC_MCP_READONLY=true — oc_sql requires a SELECT prefix",
           );
         }
         return asTextResult(await callSql({ sql: args.sql }));
