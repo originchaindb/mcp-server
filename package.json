@@ -43,10 +43,10 @@
   },
   "author": "Silicoyn Technologies Pvt Ltd",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.32.2"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "@types/node": "^20.12.0"
+    "@types/node": "^20.12.0",
+    "typescript": "^5.5.0"
   }
 }

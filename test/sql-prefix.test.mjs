@@ -38,7 +38,13 @@ async function connect(t, readOnly) {
     await client.close();
     await new Promise(resolve => fixture.close(resolve));
   });
-  await client.connect(transport);
+  let diagnostics = '';
+  transport.stderr?.on('data', chunk => { diagnostics += chunk; });
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
+  }
   assert.equal(client.getServerVersion().version, '0.1.3-rc.1');
   return { client, requests };
 }
