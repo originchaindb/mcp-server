@@ -1,40 +1,5 @@
 #!/usr/bin/env node
-/**
- * OriginChain MCP Server
- * ----------------------
- *
- * This is the Model Context Protocol (MCP) bridge between AI agents
- * (Claude Desktop, Cursor, Continue, Cline, Zed AI, etc.) and an
- * OriginChain tenant. The MCP host launches this binary as a stdio
- * subprocess; we speak JSON-RPC over stdin/stdout via the official
- * `@modelcontextprotocol/sdk`.
- *
- * Architecture
- * ============
- *  - Transport: stdio (StdioServerTransport). The MCP host writes
- *    JSON-RPC frames to our stdin and reads our responses from stdout.
- *    stderr is reserved for diagnostics — never write tool output there.
- *  - Tools: each MCP tool maps 1:1 to an OriginChain HTTP endpoint on
- *    the tenant's base URL. We construct an `Authorization: Bearer …`
- *    request, await the JSON response, and surface it as a single
- *    text-block tool result. Engine errors (`{error:{code,message}}`)
- *    are re-raised as MCP tool errors so the model sees the failure.
- *  - Resources: one teaser resource (`originchain://schemas`) returns
- *    the schema list as plain text so MCP clients that auto-attach
- *    resources to the context window get a free schema dump.
- *  - Config: three env vars, all required, no defaults. We fail fast
- *    on launch so misconfigured hosts surface the problem immediately
- *    rather than at first tool call.
- *
- * Required environment
- * ====================
- *   OC_HOST    Tenant base URL, e.g. https://abc123.api.originchain.ai
- *   OC_TENANT  Tenant ULID
- *   OC_TOKEN   Bearer token (oc_live_… / oc_test_…)
- *
- * The bearer token grants full tenant access; treat it like a database
- * password. Read-only tokens are recommended once available.
- */
+/** Stdio MCP tools and a schema resource backed by the configured OriginChainDB origin. */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -45,66 +10,17 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// ---------------------------------------------------------------------------
-// Config (fail fast)
-// ---------------------------------------------------------------------------
+import { readConfig } from './config.js';
+import { createHttpClient } from './http.js';
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v || v.length === 0) {
-    process.stderr.write(
-      `[originchain-mcp] FATAL: env var ${name} is required and missing\n`,
-    );
+const config = (() => {
+  try { return readConfig(process.env); }
+  catch (error) {
+    process.stderr.write(`[originchain-mcp] FATAL: ${error instanceof Error ? error.message : 'invalid configuration'}\n`);
     process.exit(1);
   }
-  return v;
-}
-
-const OC_HOST = requireEnv("OC_HOST").replace(/\/$/, "");
-const OC_TENANT = requireEnv("OC_TENANT");
-const OC_TOKEN = requireEnv("OC_TOKEN");
-
-const BASE = `${OC_HOST}/v1/tenants/${encodeURIComponent(OC_TENANT)}`;
-
-// ---------------------------------------------------------------------------
-// HTTP helper
-// ---------------------------------------------------------------------------
-
-async function ocFetch(
-  method: "GET" | "POST",
-  path: string,
-  body?: unknown,
-): Promise<unknown> {
-  const url = `${BASE}${path}`;
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${OC_TOKEN}`,
-    Accept: "application/json",
-  };
-  const init: RequestInit = { method, headers };
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, init);
-  const text = await res.text();
-  let parsed: unknown = null;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
-  }
-  if (!res.ok) {
-    // Engine returns {error: {code, message}}; surface verbatim.
-    const detail =
-      typeof parsed === "object" && parsed !== null
-        ? JSON.stringify(parsed)
-        : String(parsed ?? res.statusText);
-    throw new Error(`OriginChain ${method} ${path} → ${res.status}: ${detail}`);
-  }
-  return parsed;
-}
+})();
+const ocFetch = createHttpClient(config);
 
 function asTextResult(payload: unknown) {
   return {
@@ -154,11 +70,11 @@ const TOOLS = [
   {
     name: "oc_sql",
     description:
-      "Run a SQL statement against the OriginChain tenant (SELECT and DELETE are supported by the engine; the bearer token's permissions govern what is allowed). Returns rows as JSON. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
+      "Run a SQL statement against the OriginChain tenant; database permissions govern what is allowed. Returns the engine response as JSON. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
     inputSchema: {
       type: "object",
       properties: {
-        sql: { type: "string", description: "SQL statement (SELECT, or DELETE when the server is not read-only)." },
+        sql: { type: "string", description: "SQL statement. The optional SQL-prefix filter permits SELECT prefixes only." },
       },
       required: ["sql"],
       additionalProperties: false,
@@ -196,7 +112,7 @@ const TOOLS = [
   {
     name: "oc_fts_search",
     description:
-      "BM25 full-text search over a string field in `table`. Returns matching rows ranked by relevance.",
+      "Full-text search over an indexed string field in `table`, using the engine's default search mode. Response shape depends on that mode.",
     inputSchema: {
       type: "object",
       properties: {
@@ -230,15 +146,15 @@ const TOOLS = [
 // ---------------------------------------------------------------------------
 
 // POST /ask {nl, plan_only}
-async function callAsk(args: { nl: string; plan_only?: boolean }) {
+async function callAsk(args: { nl: string; plan_only?: boolean }, signal: AbortSignal) {
   const body: Record<string, unknown> = { nl: args.nl };
   if (typeof args.plan_only === "boolean") body.plan_only = args.plan_only;
-  return ocFetch("POST", `/ask`, body);
+  return ocFetch("POST", `/ask`, body, signal);
 }
 
 // POST /sql {sql}
-async function callSql(args: { sql: string }) {
-  return ocFetch("POST", `/sql`, { sql: args.sql });
+async function callSql(args: { sql: string }, signal: AbortSignal) {
+  return ocFetch("POST", `/sql`, { sql: args.sql }, signal);
 }
 
 // POST /vector/{table}/topk {query, dim, k, mode}
@@ -250,7 +166,7 @@ async function callVectorTopk(args: {
   vector: number[];
   k?: number;
   mode?: "fast" | "high_recall";
-}) {
+}, signal: AbortSignal) {
   const body = {
     query: args.vector,
     dim: args.vector.length,
@@ -261,6 +177,7 @@ async function callVectorTopk(args: {
     "POST",
     `/vector/${encodeURIComponent(args.table)}/topk`,
     body,
+    signal,
   );
 }
 
@@ -270,18 +187,20 @@ async function callFtsSearch(args: {
   field: string;
   query: string;
   limit?: number;
-}) {
+}, signal: AbortSignal) {
   const limit = args.limit ?? 20;
   const qs = `?q=${encodeURIComponent(args.query)}&limit=${limit}`;
   return ocFetch(
     "GET",
     `/fts/${encodeURIComponent(args.table)}/${encodeURIComponent(args.field)}${qs}`,
+    undefined,
+    signal,
   );
 }
 
 // GET /schemas — discovery, also backs the originchain://schemas resource.
-async function callListSchemas() {
-  return ocFetch("GET", `/schemas`);
+async function callListSchemas(signal: AbortSignal) {
+  return ocFetch("GET", `/schemas`, undefined, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +233,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   })),
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
+server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
   const { name, arguments: rawArgs } = req.params;
   const args = (rawArgs ?? {}) as Record<string, unknown>;
   try {
@@ -326,7 +245,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             nl: args.nl,
             plan_only:
               typeof args.plan_only === "boolean" ? args.plan_only : undefined,
-          }),
+          }, extra.signal),
         );
       }
       case "oc_sql": {
@@ -334,14 +253,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         // Optional SQL prefix filter only. This is not a SQL parser or an
         // authorization boundary, and it does not restrict other tools.
         if (
-          process.env.OC_MCP_READONLY === "true" &&
+          config.sqlPrefixOnly &&
           !/^\s*select\b/i.test(args.sql)
         ) {
           throw new Error(
             "OC_MCP_READONLY=true — oc_sql requires a SELECT prefix",
           );
         }
-        return asTextResult(await callSql({ sql: args.sql }));
+        return asTextResult(await callSql({ sql: args.sql }, extra.signal));
       }
       case "oc_vector_topk": {
         if (typeof args.table !== "string")
@@ -357,7 +276,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             vector: args.vector as number[],
             k,
             mode,
-          }),
+          }, extra.signal),
         );
       }
       case "oc_fts_search": {
@@ -371,11 +290,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             field: args.field,
             query: args.query,
             limit,
-          }),
+          }, extra.signal),
         );
       }
       case "oc_list_schemas": {
-        return asTextResult(await callListSchemas());
+        return asTextResult(await callListSchemas(extra.signal));
       }
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -398,11 +317,11 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
   ],
 }));
 
-server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
   if (req.params.uri !== "originchain://schemas") {
     throw new Error(`Unknown resource: ${req.params.uri}`);
   }
-  const schemas = await callListSchemas();
+  const schemas = await callListSchemas(extra.signal);
   return {
     contents: [
       {
@@ -422,7 +341,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write(
-    `[originchain-mcp] connected to ${OC_HOST} tenant=${OC_TENANT}\n`,
+    `[originchain-mcp] ready; request timeout=${config.timeoutMs}ms; database identity=${config.dbUser === undefined ? 'disabled' : 'enabled'}\n`,
   );
 }
 

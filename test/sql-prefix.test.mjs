@@ -18,7 +18,7 @@ async function connect(t, readOnly) {
   });
   await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve));
   const env = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OC_'))),
     OC_HOST: `http://127.0.0.1:${fixture.address().port}`,
     OC_TENANT: 'test-tenant',
     OC_TOKEN: 'fixture-token',
@@ -45,7 +45,7 @@ async function connect(t, readOnly) {
   } catch (error) {
     throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
   }
-  assert.equal(client.getServerVersion().version, '0.1.3-rc.1');
+  assert.equal(client.getServerVersion().version, '0.2.0-rc.1');
   return { client, requests };
 }
 
@@ -82,4 +82,12 @@ test('SQL-only filter does not claim to restrict Ask', { timeout: 60000 }, async
   const result = await client.callTool({ name: 'oc_ask', arguments: { nl: 'fixture query' } });
   assert.notEqual(result.isError, true);
   assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/ask', body: { nl: 'fixture query' } }]);
+});
+
+test('prefix filtering is not a SQL parser or read-only authorization boundary', { timeout: 60000 }, async t => {
+  const { client, requests } = await connect(t, true);
+  const sql = 'SELECT 1; DELETE FROM fixture_only';
+  const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/sql', body: { sql } }]);
 });
