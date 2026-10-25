@@ -50,24 +50,6 @@ function asErrorResult(err: unknown) {
 
 const TOOLS = [
   {
-    name: "oc_ask",
-    description:
-      "Natural-language query over the OriginChain tenant. Pass an English question; the engine plans and executes it. Set plan_only=true to retrieve the query plan without execution.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        nl: { type: "string", description: "Natural-language question." },
-        plan_only: {
-          type: "boolean",
-          description:
-            "If true, return the query plan without executing it. Default false.",
-        },
-      },
-      required: ["nl"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "oc_sql",
     description:
       "Run a SQL statement against the OriginChain tenant; database permissions govern what is allowed. Returns the engine response as JSON. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
@@ -144,13 +126,6 @@ const TOOLS = [
 // ---------------------------------------------------------------------------
 // Tool implementations (one short comment each)
 // ---------------------------------------------------------------------------
-
-// POST /ask {nl, plan_only}
-async function callAsk(args: { nl: string; plan_only?: boolean }, signal: AbortSignal) {
-  const body: Record<string, unknown> = { nl: args.nl };
-  if (typeof args.plan_only === "boolean") body.plan_only = args.plan_only;
-  return ocFetch("POST", `/ask`, body, signal);
-}
 
 // POST /sql {sql}
 async function callSql(args: { sql: string }, signal: AbortSignal) {
@@ -238,16 +213,6 @@ server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
   const args = (rawArgs ?? {}) as Record<string, unknown>;
   try {
     switch (name) {
-      case "oc_ask": {
-        if (typeof args.nl !== "string") throw new Error("`nl` must be a string");
-        return asTextResult(
-          await callAsk({
-            nl: args.nl,
-            plan_only:
-              typeof args.plan_only === "boolean" ? args.plan_only : undefined,
-          }, extra.signal),
-        );
-      }
       case "oc_sql": {
         if (typeof args.sql !== "string") throw new Error("`sql` must be a string");
         // Optional SQL prefix filter only. This is not a SQL parser or an

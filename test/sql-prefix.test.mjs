@@ -45,7 +45,7 @@ async function connect(t, readOnly) {
   } catch (error) {
     throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
   }
-  assert.equal(client.getServerVersion().version, '0.2.0-rc.1');
+  assert.equal(client.getServerVersion().version, '0.3.0-rc.1');
   return { client, requests };
 }
 
@@ -77,11 +77,16 @@ test('unset filter preserves SQL forwarding to database authorization', { timeou
   assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/sql', body: { sql } }]);
 });
 
-test('SQL-only filter does not claim to restrict Ask', { timeout: 60000 }, async t => {
+test('advertised tool set excludes the removed service and rejects it before HTTP', { timeout: 60000 }, async t => {
   const { client, requests } = await connect(t, true);
+  const tools = await client.listTools();
+  assert.deepEqual(tools.tools.map(tool => tool.name).sort(), [
+    'oc_fts_search', 'oc_list_schemas', 'oc_sql', 'oc_vector_topk',
+  ]);
   const result = await client.callTool({ name: 'oc_ask', arguments: { nl: 'fixture query' } });
-  assert.notEqual(result.isError, true);
-  assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/ask', body: { nl: 'fixture query' } }]);
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Unknown tool/);
+  assert.deepEqual(requests, []);
 });
 
 test('prefix filtering is not a SQL parser or read-only authorization boundary', { timeout: 60000 }, async t => {
