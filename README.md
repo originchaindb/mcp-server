@@ -6,6 +6,10 @@ The host starts this Node.js process and communicates over stdin/stdout. The
 process sends HTTP requests to your database; it does not start an HTTP MCP
 server.
 
+See the [SDK support matrix](https://github.com/originchaindb/.github/blob/main/SDK-SUPPORT.md) for the current source version, earlier
+preview and tested scope. Graph queries are not exposed as a dedicated MCP tool;
+use a language SDK when you need graph traversal methods.
+
 ## Install and connect
 
 Use Node.js 20 or later. This branch prepares `0.3.0-rc.1`; it has not been
