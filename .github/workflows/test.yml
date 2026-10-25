@@ -112,10 +112,11 @@
           }
         },
         {
-          "run": "sha256sum --check release-package/SHA256SUMS\nnpm ci\nmkdir -p \"$RUNNER_TEMP/mcp-consumer\"\ncd \"$RUNNER_TEMP/mcp-consumer\"\nnpm init -y\nnpm install --ignore-scripts \"$MCP_SERVER_PACKAGE\"\nnpm audit --json > audit.json\nnode --test \"$GITHUB_WORKSPACE\"/test/*.test.mjs",
+          "run": "sha256sum --check release-package/SHA256SUMS\nnpm ci\nmkdir -p \"$RUNNER_TEMP/mcp-consumer\"\ncd \"$RUNNER_TEMP/mcp-consumer\"\nnpm init -y\nnpm install --ignore-scripts \"$MCP_SERVER_PACKAGE\"\nnpm audit --json > audit.json\nnode --test --test-concurrency=1 \"$GITHUB_WORKSPACE\"/test/*.test.mjs",
           "env": {
             "MCP_SERVER_PACKAGE": "${{ github.workspace }}/release-package/originchain-mcp-server-0.2.0-rc.1.tgz"
-          }
+          },
+          "name": "Verify packed executable without concurrent cold npx cache installs"
         },
         {
           "name": "Verify all README tools and resource against packed archive",

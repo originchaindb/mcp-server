@@ -65,7 +65,11 @@ async function connect(t, origin, overrides = {}, expectFailure = false) {
     await assert.rejects(client.connect(transport));
     await waitFor(() => diagnostics.includes('FATAL:'), 'startup diagnostic');
   } else {
-    await client.connect(transport);
+    try {
+      await client.connect(transport);
+    } catch (error) {
+      throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
+    }
     assert.equal(client.getServerVersion().version, version);
   }
   return { client, diagnostics: () => diagnostics };
