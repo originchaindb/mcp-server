@@ -45,8 +45,9 @@ const base = '/v1/tenants/docs%20tenant';
 function start(overrides = {}) {
   const childEnv = { ...env, ...overrides };
   for (const name of Object.keys(childEnv)) if (childEnv[name] === undefined) delete childEnv[name];
-  const command = config.command;
-  const args = config.args.map(arg => arg.startsWith('https://github.com/') ? resolve(sourcePath) : arg);
+  const command = process.env.MCP_SERVER_ENTRY ? process.execPath : config.command;
+  const args = process.env.MCP_SERVER_ENTRY ? [resolve(process.env.MCP_SERVER_ENTRY)]
+    : config.args.map(arg => arg.startsWith('https://github.com/') ? resolve(sourcePath) : arg);
   const child = spawn(command, args, { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
   let buffer = '', stderr = '', nextId = 1;
   const pending = new Map();
