@@ -46,9 +46,9 @@ def verify_archive(directory, package):
         raise ValueError('Preview source commit is invalid')
     if proof.get('head') != selected['head'] or proof.get('version') != selected['version']:
         raise ValueError('GitHub proof identifies another source/version')
-    for key, value in {'passed': True, 'ci_jobs': 7, 'tests_per_runtime': 63,
+    for key, value in {'passed': True, 'ci_jobs': 7, 'tests_per_runtime': 62,
                        'source_runtimes': [20, 22, 24], 'installed_runtimes': [20, 22, 24],
-                       'readme_cases': 18}.items():
+                       'readme_cases': 17}.items():
         if proof.get(key) != value:
             raise ValueError('GitHub proof lacks required acceptance: ' + key)
     archives = list(directory.glob('*.tgz'))
@@ -91,21 +91,21 @@ def attest(directory, runtime):
     directory = Path(directory)
     selected, _ = verify_archive(directory, load('package.json'))
     log = (directory / ('tests-node' + runtime + '.log')).read_text(encoding='utf-8')
-    for summary in ('tests 63', 'pass 63', 'fail 0', 'cancelled 0', 'skipped 0'):
+    for summary in ('tests 62', 'pass 62', 'fail 0', 'cancelled 0', 'skipped 0'):
         if not re.search(r'(?:#|ℹ) ' + summary + r'(?:\r?\n|$)', log):
             raise ValueError('Missing passing test summary: ' + summary)
     readme = load(directory / ('readme-node' + runtime + '.json'))
-    if not readme.get('all_passed') or len(readme.get('cases', [])) != 18:
+    if not readme.get('all_passed') or len(readme.get('cases', [])) != 17:
         raise ValueError('README fixture did not pass all cases')
     if readme.get('package_version') != selected['version']:
         raise ValueError('README fixture used another package version')
     executable = load(directory / ('installed-executable-node' + runtime + '.json'))
-    if not executable.get('all_passed') or len(executable.get('cases', [])) != 18 or executable.get('package_version') != selected['version']:
+    if not executable.get('all_passed') or len(executable.get('cases', [])) != 17 or executable.get('package_version') != selected['version']:
         raise ValueError('Fresh installed executable did not pass all cases')
     audit = load(directory / ('audit-node' + runtime + '.json'))
     if audit.get('metadata', {}).get('vulnerabilities', {}).get('total') != 0:
         raise ValueError('Installed dependency audit is not clean')
-    receipt = dict(selected, runtime=runtime, passed=True, stdio_cases=63, readme_cases=18, direct_executable_cases=18,
+    receipt = dict(selected, runtime=runtime, passed=True, stdio_cases=62, readme_cases=17, direct_executable_cases=17,
                    workflow_sha=os.environ['GITHUB_SHA'])
     write(directory / ('acceptance-node' + runtime + '.json'), receipt)
 
@@ -117,7 +117,7 @@ def verify_acceptance(directory, package, workflow_sha):
         raise ValueError('Candidate was selected by another workflow source')
     for runtime in ('20', '22', '24'):
         receipt = load(directory / ('acceptance-node' + runtime + '.json'))
-        expected = dict(selected, runtime=runtime, passed=True, stdio_cases=63, readme_cases=18, direct_executable_cases=18,
+        expected = dict(selected, runtime=runtime, passed=True, stdio_cases=62, readme_cases=17, direct_executable_cases=17,
                         workflow_sha=workflow_sha)
         if receipt != expected:
             raise ValueError('Missing or mismatched packed acceptance for Node ' + runtime)

@@ -102,7 +102,7 @@ jobs:
           merge-multiple: true
       - name: Publish the exact tested preview with OIDC and the next tag
         run: python scripts/publish_npm.py release-dist
-      - name: Verify the fresh public-registry executable and all five tools
+      - name: Verify the fresh public-registry executable and all four tools
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.select.outputs.version }}

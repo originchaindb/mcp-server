@@ -13,7 +13,7 @@ from unittest.mock import patch
 from publish_npm import check_existing, publish_command
 from release_preview import validate, verify_acceptance, verify_archive, verify_source, write
 
-PACKAGE = {'name': '@originchain/mcp-server', 'version': '0.2.0-rc.1',
+PACKAGE = {'name': '@originchain/mcp-server', 'version': '0.3.0-rc.1',
            'repository': {'url': 'git+https://github.com/originchaindb/mcp-server.git'}}
 HEAD = 'a' * 40
 WORKFLOW = 'b' * 40
@@ -30,7 +30,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.check()['dist_tag'], 'next')
 
     def test_stable_and_invalid_versions_are_not_promoted(self):
-        for version in ('0.2.0', '0.2.0-beta.1', 'v0.2.0-rc.1', '0.2.0-rc.0', '../archive', '00.2.0-rc.1'):
+        for version in ('0.2.0', '0.2.0-beta.1', 'v0.3.0-rc.1', '0.2.0-rc.0', '../archive', '00.3.0-rc.1'):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 self.check(version=version)
 
@@ -63,8 +63,8 @@ class ArtifactTests(unittest.TestCase):
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
         self.selected['sha256'] = digest
         self.proof = dict(head=HEAD, version=PACKAGE['version'], sha256=digest, passed=True,
-                          ci_jobs=7, tests_per_runtime=63, source_runtimes=[20, 22, 24],
-                          installed_runtimes=[20, 22, 24], readme_cases=18)
+                          ci_jobs=7, tests_per_runtime=62, source_runtimes=[20, 22, 24],
+                          installed_runtimes=[20, 22, 24], readme_cases=17)
         self.save()
 
     def pack(self, extra=None):
@@ -97,7 +97,7 @@ class ArtifactTests(unittest.TestCase):
 
     def test_wrong_source_or_acceptance_proof_is_rejected(self):
         for key, value in [('head', 'c' * 40), ('version', '0.2.0-rc.2'), ('passed', False),
-                           ('tests_per_runtime', 62), ('installed_runtimes', [20]), ('readme_cases', 0)]:
+                           ('tests_per_runtime', 61), ('installed_runtimes', [20]), ('readme_cases', 0)]:
             original = self.proof[key]
             self.proof[key] = value
             self.save()
@@ -149,7 +149,7 @@ class ArtifactTests(unittest.TestCase):
     def receipts(self):
         for runtime in ('20', '22', '24'):
             write(self.directory / ('acceptance-node' + runtime + '.json'),
-                  dict(self.selected, runtime=runtime, passed=True, stdio_cases=63, readme_cases=18, direct_executable_cases=18,
+                  dict(self.selected, runtime=runtime, passed=True, stdio_cases=62, readme_cases=17, direct_executable_cases=17,
                        workflow_sha=WORKFLOW))
 
     def test_all_three_runtime_receipts_bind_exact_archive_and_workflow(self):

@@ -13,7 +13,6 @@ const sql = { name: 'oc_sql', arguments: { sql: 'SELECT 42' } };
 // Every operation receives its own caller signal; no global request state.
 const calls = [
   { name: 'SQL', run: (client, options) => client.callTool(sql, undefined, options) },
-  { name: 'Ask', run: (client, options) => client.callTool({ name: 'oc_ask', arguments: { nl: 'fixture' } }, undefined, options) },
   { name: 'vector', run: (client, options) => client.callTool({ name: 'oc_vector_topk', arguments: { table: 'fixture', vector: [1, 2] } }, undefined, options) },
   { name: 'FTS', run: (client, options) => client.callTool({ name: 'oc_fts_search', arguments: { table: 'fixture', field: 'body', query: 'fixture' } }, undefined, options) },
   { name: 'schemas tool', run: (client, options) => client.callTool({ name: 'oc_list_schemas', arguments: {} }, undefined, options) },
@@ -75,11 +74,11 @@ async function connect(t, origin, overrides = {}, expectFailure = false) {
   return { client, diagnostics: () => diagnostics };
 }
 
-test('paired database credentials reach all five tools and the schema resource', { timeout }, async t => {
+test('paired database credentials reach all four tools and the schema resource', { timeout }, async t => {
   const http = await fixture(t);
   const { client, diagnostics } = await connect(t, http.origin, { OC_DB_USER: 'fixture-user', OC_DB_KEY: 'fixture-key' });
   for (const call of calls) await call.run(client);
-  assert.equal(http.requests.length, 6);
+  assert.equal(http.requests.length, 5);
   for (const request of http.requests) {
     assert.equal(request.headers.authorization, 'Bearer fixture-token');
     assert.equal(request.headers['x-oc-db-user'], 'fixture-user');
@@ -135,13 +134,13 @@ for (const [label, settings, expected] of [
 
 test('explicit insecure HTTP opt-in permits startup for a remote origin without connecting', { timeout }, async t => {
   const { client } = await connect(t, 'http://example.com', { OC_ALLOW_INSECURE_HTTP: 'true' });
-  assert.equal((await client.listTools()).tools.length, 5);
+  assert.equal((await client.listTools()).tools.length, 4);
 });
 
 for (const origin of ['http://localhost:8123/', 'http://[::1]:8123/']) {
   test(`loopback origin ${origin} permits startup without an insecure opt-in`, { timeout }, async t => {
     const { client } = await connect(t, origin);
-    assert.equal((await client.listTools()).tools.length, 5);
+    assert.equal((await client.listTools()).tools.length, 4);
   });
 }
 

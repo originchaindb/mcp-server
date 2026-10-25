@@ -114,14 +114,14 @@
         {
           "run": "sha256sum --check release-package/SHA256SUMS\nnpm ci\nmkdir -p \"$RUNNER_TEMP/mcp-consumer\"\ncd \"$RUNNER_TEMP/mcp-consumer\"\nnpm init -y\nnpm install --ignore-scripts \"$MCP_SERVER_PACKAGE\"\nnpm audit --json > audit.json\nnode --test --test-concurrency=1 \"$GITHUB_WORKSPACE\"/test/*.test.mjs",
           "env": {
-            "MCP_SERVER_PACKAGE": "${{ github.workspace }}/release-package/originchain-mcp-server-0.2.0-rc.1.tgz"
+            "MCP_SERVER_PACKAGE": "${{ github.workspace }}/release-package/originchain-mcp-server-0.3.0-rc.1.tgz"
           },
           "name": "Verify packed executable without concurrent cold npx cache installs"
         },
         {
           "name": "Verify all README tools and resource against packed archive",
           "if": "matrix.node == '20'",
-          "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.2.0-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
+          "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.3.0-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
         },
         {
           "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -141,7 +141,7 @@
       ]
     },
     "promotion-verification": {
-      "name": "Verify existing GitHub preview promotion",
+      "name": "Validate nonpublishing release tooling",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
       "steps": [
@@ -169,27 +169,6 @@
         },
         {
           "run": "python -m unittest discover -s scripts -p 'test_*.py' -v"
-        },
-        {
-          "name": "Select existing archive without npm publication",
-          "env": {
-            "RELEASE_VERSION": "0.2.0-rc.1",
-            "PREVIEW_VERIFY_ONLY": "1",
-            "GH_TOKEN": "${{ github.token }}"
-          },
-          "run": "python scripts/release_preview.py prepare release-dist"
-        },
-        {
-          "name": "Exercise shared promotion pipeline against the immutable tag",
-          "run": "python scripts/checkout_preview.py release-dist release-source\nbash scripts/check_preview.sh release-dist release-source 24"
-        },
-        {
-          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
-          "with": {
-            "name": "mcp-promotion-verification",
-            "path": "release-dist/",
-            "if-no-files-found": "error"
-          }
         }
       ]
     }
