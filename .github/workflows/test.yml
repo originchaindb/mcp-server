@@ -139,6 +139,55 @@
           }
         }
       ]
+    },
+    "promotion-verification": {
+      "name": "Verify existing GitHub preview promotion",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+          "with": {
+            "node-version": "24"
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.12"
+          }
+        },
+        {
+          "run": "python -m unittest discover -s scripts -p 'test_*.py' -v"
+        },
+        {
+          "name": "Select existing archive without npm publication",
+          "env": {
+            "RELEASE_VERSION": "0.2.0-rc.1",
+            "PREVIEW_VERIFY_ONLY": "1",
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "run": "python scripts/release_preview.py prepare release-dist"
+        },
+        {
+          "name": "Exercise shared promotion pipeline against the immutable tag",
+          "run": "python scripts/checkout_preview.py release-dist release-source\nbash scripts/check_preview.sh release-dist release-source 24"
+        },
+        {
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "mcp-promotion-verification",
+            "path": "release-dist/",
+            "if-no-files-found": "error"
+          }
+        }
+      ]
     }
   }
 }

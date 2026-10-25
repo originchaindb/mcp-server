@@ -223,6 +223,14 @@ HTTP fixture, including SELECT prefixes, timeout and cancellation disconnects,
 identity pairing, redirect refusal, credential isolation and the SQL-only scope
 of the flag. CI repeats these checks against the packed executable.
 
+Maintainers can promote the current, verified GitHub preview through
+[`release.yml`](.github/workflows/release.yml) after configuring the npm trusted
+publisher for this repository and the `production-npm` environment. It downloads
+the existing release archive, checks it against the tagged source, repeats the
+installed-package tests, and publishes those bytes with the `next` tag. It does
+not rebuild the published package or advance `latest`. Pull requests exercise
+the selection and acceptance steps without publishing to npm.
+
 Report problems with the package version, Node.js version, tool name, and a
 redacted error at [GitHub issues](https://github.com/originchaindb/mcp-server/issues).
 Do not include tokens or private query results.
