@@ -89,6 +89,9 @@ class ArtifactTests(unittest.TestCase):
                                  '--registry=https://registry.npmjs.org'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         metadata = json.loads(result.stdout)
+        # npm 11.19+ wraps the report by package name; older npm emits it directly.
+        if set(metadata) == {PACKAGE['name']}:
+            metadata = metadata[PACKAGE['name']]
         self.assertEqual(metadata['name'], PACKAGE['name'])
         self.assertEqual(metadata['version'], PACKAGE['version'])
 

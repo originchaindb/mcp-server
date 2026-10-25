@@ -164,6 +164,10 @@
           }
         },
         {
+          "name": "Use the same npm CLI as OIDC publication",
+          "run": "npm install --global npm@11.21.0 --ignore-scripts"
+        },
+        {
           "run": "python -m unittest discover -s scripts -p 'test_*.py' -v"
         },
         {
