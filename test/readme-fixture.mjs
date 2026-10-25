@@ -11,7 +11,7 @@ const readme = await readFile(readmePath, 'utf8');
 const examples = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
 const config = examples[0].mcpServers.originchaindb;
 assert.equal(config.command, 'npx');
-assert.deepEqual(config.args, ['--yes', '--package', 'https://github.com/originchaindb/mcp-server/releases/download/v0.1.3-rc.1/originchain-mcp-server-0.1.3-rc.1.tgz', 'originchain-mcp']);
+assert.deepEqual(config.args, ['--yes', '--package', 'https://github.com/originchaindb/mcp-server/releases/download/v0.2.0-rc.1/originchain-mcp-server-0.2.0-rc.1.tgz', 'originchain-mcp']);
 const cases = [];
 const requests = [];
 const fixture = createServer(async (req, res) => {
@@ -38,7 +38,7 @@ const fixture = createServer(async (req, res) => {
 });
 await new Promise(r => fixture.listen(0, '127.0.0.1', r));
 const address = fixture.address();
-const env = { ...process.env, OC_HOST: `http://127.0.0.1:${address.port}`, OC_TENANT: 'docs tenant', OC_TOKEN: 'fixture-token' };
+const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OC_'))), OC_HOST: `http://127.0.0.1:${address.port}`, OC_TENANT: 'docs tenant', OC_TOKEN: 'fixture-token' };
 delete env.OC_MCP_READONLY;
 const base = '/v1/tenants/docs%20tenant';
 
@@ -80,7 +80,7 @@ function start(overrides = {}) {
 function ok(name) { cases.push({ name, passed: true }); }
 async function initialize(client) {
   const reply = await client.request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'readme-fixture', version: '1.0.0' } });
-  assert.equal(reply.serverInfo.name, 'originchain-mcp'); assert.equal(reply.serverInfo.version, '0.1.3-rc.1');
+  assert.equal(reply.serverInfo.name, 'originchain-mcp'); assert.equal(reply.serverInfo.version, '0.2.0-rc.1');
   client.notify('notifications/initialized');
 }
 function checkLast(path, method, body) {
@@ -132,7 +132,7 @@ try {
   const missing = start({OC_TOKEN:undefined});
   const exitCode = await new Promise((resolve,reject) => { const t=setTimeout(()=>{missing.child.kill();reject(new Error('missing token did not exit'));},30000); missing.child.once('exit',code=>{clearTimeout(t);resolve(code);}); });
   assert.equal(exitCode,1); assert.match(missing.stderr(),/OC_TOKEN is required and missing/); ok('missing required environment fails at startup');
-  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.1.3-rc.1',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live tenant or credentials'},null,2)+'\n');
+  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.2.0-rc.1',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live tenant or credentials'},null,2)+'\n');
   console.log(JSON.stringify({variant,node:process.version,passed:cases.length}));
 } finally {
   if(client) await client.close();

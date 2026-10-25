@@ -114,13 +114,13 @@
         {
           "run": "sha256sum --check release-package/SHA256SUMS\nnpm ci\nmkdir -p \"$RUNNER_TEMP/mcp-consumer\"\ncd \"$RUNNER_TEMP/mcp-consumer\"\nnpm init -y\nnpm install --ignore-scripts \"$MCP_SERVER_PACKAGE\"\nnpm audit --json > audit.json\nnode --test \"$GITHUB_WORKSPACE\"/test/*.test.mjs",
           "env": {
-            "MCP_SERVER_PACKAGE": "${{ github.workspace }}/release-package/originchain-mcp-server-0.1.3-rc.1.tgz"
+            "MCP_SERVER_PACKAGE": "${{ github.workspace }}/release-package/originchain-mcp-server-0.2.0-rc.1.tgz"
           }
         },
         {
           "name": "Verify all README tools and resource against packed archive",
           "if": "matrix.node == '20'",
-          "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.1.3-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
+          "run": "cd \"$RUNNER_TEMP/mcp-consumer\"\nnode \"$GITHUB_WORKSPACE/test/readme-fixture.mjs\" packed \"$GITHUB_WORKSPACE/README.md\" \"$GITHUB_WORKSPACE/release-package/originchain-mcp-server-0.2.0-rc.1.tgz\" \"$GITHUB_WORKSPACE/readme-verification.json\""
         },
         {
           "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
