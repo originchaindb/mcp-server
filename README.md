@@ -10,6 +10,18 @@ See the [SDK support matrix](https://github.com/originchaindb/.github/blob/main/
 preview and tested scope. Graph queries are not exposed as a dedicated MCP tool;
 use a language SDK when you need graph traversal methods.
 
+## Repository structure
+
+| Path | Purpose |
+| --- | --- |
+| [`src/`](src/) | MCP tools, connection configuration and HTTP transport. |
+| [`test/`](test/) | Real stdio protocol tests against a local HTTP fixture. |
+| [`examples/`](examples/) | Runnable MCP client for SQL, full-text, vector and schema tools. |
+| [`scripts/`](scripts/) | Preview verification and publication tooling. |
+| [`.github/workflows/`](.github/workflows/) | Source, installed-package and release checks. |
+
+Start with the [runnable examples](examples/README.md). For setup, tests and package checks, see [Contributing](CONTRIBUTING.md).
+
 ## Install and connect
 
 Use Node.js 20 or later. This branch prepares `0.3.0-rc.1`; it has not been
