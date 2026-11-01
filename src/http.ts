@@ -1,8 +1,11 @@
 import type { Config } from './config.js';
 
-/** One HTTP attempt per MCP call; the deadline includes reading the response body. */
+/**
+ * One HTTP attempt per MCP call; the deadline includes reading the response body.
+ * Every request goes to OC_URL exactly as configured, with the door path appended.
+ */
 export function createHttpClient(config: Config) {
-  const base = `${config.origin}/v1/tenants/${encodeURIComponent(config.tenant)}`;
+  const base = config.url;
   return async function ocFetch(
     method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal,
   ): Promise<unknown> {
@@ -25,10 +28,6 @@ export function createHttpClient(config: Config) {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${config.token}`, Accept: 'application/json',
       };
-      if (config.dbUser !== undefined && config.dbKey !== undefined) {
-        headers['X-OC-DB-User'] = config.dbUser;
-        headers['X-OC-DB-Key'] = config.dbKey;
-      }
       const init: RequestInit = { method, headers, signal: controller.signal, redirect: 'manual' };
       if (body !== undefined) {
         headers['Content-Type'] = 'application/json';
@@ -37,7 +36,7 @@ export function createHttpClient(config: Config) {
       const res = await fetch(`${base}${path}`, init);
       if (res.status >= 300 && res.status < 400) {
         await res.body?.cancel();
-        throw new Error(`${operation}: HTTP redirect (${res.status}) refused; configure OC_HOST with the direct database origin`);
+        throw new Error(`${operation}: HTTP redirect (${res.status}) refused; use OC_URL exactly as copied from Connect`);
       }
       const text = await res.text();
       let parsed: unknown = null;

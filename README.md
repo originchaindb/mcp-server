@@ -1,14 +1,21 @@
 # OriginChainDB MCP server
 
-Connect an MCP host to an OriginChainDB tenant through four tools: SQL,
+Connect an MCP host to an OriginChainDB database through four tools: SQL,
 vector search, full-text search, and schema discovery.
 The host starts this Node.js process and communicates over stdin/stdout. The
-process sends HTTP requests to your database; it does not start an HTTP MCP
-server.
+process sends HTTPS requests to your database's address with your access token;
+it does not start an HTTP MCP server.
+
+<!-- connect:begin -->
+<!-- TODO(connect.v1.json): generate this block from the connect contract's "answer" once the contract is published; until then it is copied verbatim. -->
+Connect over HTTPS with two values: OC_URL (your database's address, from Connect) and OC_TOKEN (an access token from Access tokens). Send Authorization: Bearer $OC_TOKEN to $OC_URL/sql.
+<!-- connect:end -->
+
+This server needs exactly those two values and makes those requests for you.
 
 See the [SDK support matrix](https://github.com/originchaindb/.github/blob/main/SDK-SUPPORT.md) for the current source version, earlier
 preview and tested scope. Graph queries are not exposed as a dedicated MCP tool;
-use a language SDK when you need graph traversal methods.
+applications send them over HTTPS to `$OC_URL/cypher` with the same token.
 
 ## Repository structure
 
@@ -41,7 +48,8 @@ messages on stdin. It is not an interactive SQL shell. The first launch may
 download the package and its dependencies.
 
 For a host whose configuration accepts an `mcpServers` object, add an entry like
-this. Replace the three values with your database's connection details:
+this. Replace the two values with your database's address, copied from
+Connect, and an access token from Access tokens:
 
 ```json
 {
@@ -50,9 +58,8 @@ this. Replace the three values with your database's connection details:
       "command": "npx",
       "args": ["--yes", "--package", "/absolute/path/originchain-mcp-server-0.3.0-rc.1.tgz", "originchain-mcp"],
       "env": {
-        "OC_HOST": "https://your-database-host",
-        "OC_TENANT": "your-tenant-id",
-        "OC_TOKEN": "your-bearer-token"
+        "OC_URL": "paste your database's address from Connect",
+        "OC_TOKEN": "paste an access token from Access tokens"
       }
     }
   }
@@ -82,31 +89,37 @@ tool. Reload your host to refresh its tool list after upgrading.
 
 | Variable | Required | Value |
 | --- | --- | --- |
-| `OC_HOST` | Yes | Database origin, such as `https://your-database-host`, without `/v1/tenants/...`. |
-| `OC_TENANT` | Yes | Tenant identifier. The server URL-encodes it in the request path. |
-| `OC_TOKEN` | Yes | Bearer token accepted by that database. |
-| `OC_DB_USER` / `OC_DB_KEY` | No | Database-user name and key. Set both or omit both. Empty or incomplete pairs fail at startup. |
+| `OC_URL` | Yes | Your database's address, copied from Connect. Use it exactly as shown: the server appends each tool's path, such as `/sql`, and never builds, edits or parses the address. A trailing slash is ignored. |
+| `OC_TOKEN` | Yes | An access token (`oc_pat_...`) from Access tokens, sent unchanged as `Authorization: Bearer <OC_TOKEN>`. On databases where access tokens are not supported yet, use that database's key. |
 | `OC_MCP_TIMEOUT_MS` | No | Per-HTTP-request deadline in milliseconds, including response-body reads. Default `60000`; integer range `1`–`2147483647`. |
-| `OC_ALLOW_INSECURE_HTTP` | No | Exactly `true` permits a non-loopback HTTP origin. Otherwise HTTPS is required except for `localhost`, `127.0.0.1` and `[::1]`. |
+| `OC_ALLOW_INSECURE_HTTP` | No | Exactly `true` permits a non-loopback HTTP address. Otherwise HTTPS is required except for `localhost`, `127.0.0.1` and `[::1]`. |
 | `OC_MCP_READONLY` | No | Exactly `true` enables the limited SQL-prefix filter. It applies only to `oc_sql`; see [Permissions and limitations](#permissions-and-limitations). |
 
-Requests use `${OC_HOST}/v1/tenants/${OC_TENANT}` and an
-`Authorization: Bearer ...` header. When a database-user pair is configured,
-every tool and schema-resource request also sends `X-OC-DB-User` and
-`X-OC-DB-Key`. These headers identify the caller; database permissions still
-control access. Tokens, database-user names and keys must be nonempty visible
-ASCII without spaces or control characters.
+An access token reaches data only once its owner has a database identity on
+that database; until then every request returns 401 `unknown token`. Set the
+identity up from the token's details, or ask an admin. The token's database
+permissions decide what each tool may read or write. Tokens must be nonempty
+visible ASCII without spaces or control characters.
 
-`OC_HOST` must be an HTTP(S) origin: scheme, hostname and optional port, with an
-optional trailing slash. Userinfo, path prefixes, queries and fragments are
-rejected. Tenant and tool path values are URL-encoded. No caller-supplied tool
-argument can select another origin. **All redirects are refused**, including
-same-origin redirects; configure the direct database origin. Redirect targets
-never receive bearer or database-user credentials from this server.
+`OC_URL` must be an absolute HTTP(S) address without userinfo, a query or a
+fragment, and its path must not contain `.` or `..` segments or characters a
+URL parser would rewrite. Tool path values are URL-encoded. No caller-supplied
+tool argument can select another address. **All redirects are refused**,
+including same-origin redirects; use `OC_URL` exactly as copied from Connect.
+Redirect targets never receive the token from this server.
+
+**Upgrading from 0.2.x and earlier:** the address is now one value, `OC_URL`,
+copied from Connect, in place of the earlier separate host and database-id
+settings. For this release only, the server still reads those earlier settings
+when `OC_URL` is unset and prints a warning on stderr naming the replacement;
+the next minor release drops them. Database-user name and key settings are no
+longer supported: the server refuses to start while either is set, rather than
+send requests with the token's own permissions. Create an access token for that
+database identity and use it as `OC_TOKEN`.
 
 **Migrating from 0.1.x:** remote plain HTTP requires the explicit
 `OC_ALLOW_INSECURE_HTTP=true` opt-in, and redirected endpoints must be replaced
-with their final origin. Prefer HTTPS: the opt-in sends credentials without
+with their final address. Prefer HTTPS: the opt-in sends credentials without
 transport encryption. Loopback HTTP remains available for local development.
 Requests now time out after 60 seconds unless `OC_MCP_TIMEOUT_MS` overrides the
 deadline. Keep credentials out of checked-in host configuration; use your
@@ -117,12 +130,15 @@ host's secret handling when available.
 These are the arguments supplied to MCP `tools/call`, not separate HTTP APIs.
 Names and types are case-sensitive.
 
-| Tool | Required arguments | Optional arguments | Request |
+| Tool | Required arguments | Optional arguments | HTTPS request |
 | --- | --- | --- | --- |
-| `oc_list_schemas` | None (`{}`) | None | `GET /schemas` |
-| `oc_sql` | `sql`: string | None | `POST /sql` with `{ "sql": ... }` |
-| `oc_vector_topk` | `table`: string, `vector`: number array | `k`: positive integer (10), `mode`: `"fast"` or `"high_recall"` (`"high_recall"`) | `POST /vector/{table}/topk`; maps `vector` to `query` and sets `dim` to its length. |
-| `oc_fts_search` | `table`: string, `field`: string, `query`: string | `limit`: positive integer (20) | `GET /fts/{table}/{field}?q=...&limit=...` |
+| `oc_list_schemas` | None (`{}`) | None | `GET $OC_URL/schemas` |
+| `oc_sql` | `sql`: string | None | `POST $OC_URL/sql` with `{ "sql": ... }` |
+| `oc_vector_topk` | `table`: string, `vector`: number array | `k`: positive integer (10), `mode`: `"fast"` or `"high_recall"` (`"high_recall"`) | `POST $OC_URL/vector/{table}/topk`; maps `vector` to `query` and sets `dim` to its length. |
+| `oc_fts_search` | `table`: string, `field`: string, `query`: string | `limit`: positive integer (20) | `GET $OC_URL/fts/{table}/{field}?q=...&limit=...` |
+
+The only credential on each request is `Authorization: Bearer <OC_TOKEN>`; no
+other identity header is sent.
 
 Start with schema discovery, or run a query that does not require an existing
 table:
@@ -155,9 +171,12 @@ The SQL tool accepts a statement string only; it has no bound-parameter input.
 
 Successful calls return one MCP text block containing the server response as
 formatted JSON, or unchanged text when the HTTP response is not JSON. The
-server does not normalize rows into a separate MCP result schema.
+server does not normalize rows into a separate MCP result schema. A `SELECT`
+through `oc_sql` returns `{"kind":"select","columns":[...],"rows":[{...}]}`:
+only `kind: "select"` has `rows`, a NULL cell is an absent key, and numeric,
+date and time values arrive as strings.
 
-The `originchain://schemas` resource makes the same `GET /schemas` request and
+The `originchain://schemas` resource makes the same `GET $OC_URL/schemas` request and
 returns its JSON with MIME type `application/json`. A host must explicitly read
 or attach it; listing the resource does not load schemas into every assistant.
 
@@ -201,12 +220,16 @@ deciding whether to submit it again.
 
 | Symptom | What to check |
 | --- | --- |
-| Process exits with `FATAL: env var ... is required and missing` | All three required variables must reach the child process; a host may not inherit your terminal environment. |
-| Startup rejects an identity pair, origin or timeout | Supply both `OC_DB_USER`/`OC_DB_KEY`, use a direct origin, and choose a positive integer deadline. Configuration errors do not print secret values. |
-| Tool reports a refused redirect | Set `OC_HOST` to the direct database origin; the server will not follow the redirect. |
+| Process exits with `FATAL: env var ... is required and missing` | Both `OC_URL` and `OC_TOKEN` must reach the child process; a host may not inherit your terminal environment. |
+| Startup rejects the address, token, a retired setting or the timeout | Copy `OC_URL` from Connect unchanged, use an access token as `OC_TOKEN` and remove database-user settings, and choose a positive integer deadline. Configuration errors do not print secret values. |
+| Startup prints a `WARNING` on stderr | A retired setting is still configured. Follow the warning: set `OC_URL` from Connect and remove the retired settings. |
+| Tool reports a refused redirect | Use `OC_URL` exactly as copied from Connect; the server will not follow the redirect. |
 | Tool reports a timeout | Check the database and network, then adjust `OC_MCP_TIMEOUT_MS` if appropriate. A submitted write may already have completed. |
 | Host cannot start `npx` | Install Node.js 20+, check the host's executable path, or configure the installed `originchain-mcp` executable. |
-| Tool returns `isError: true` with HTTP 401 or 403 | Check the target host, tenant, token, and database permissions. |
+| Tool returns HTTP 401 | This database does not accept this token: wrong database, revoked, expired, not active yet, or no database identity yet (`unknown token`). Set up your database identity from the token's details, or ask an admin. |
+| Tool returns HTTP 403 | `OC_URL` was changed, or a read-only token tried to write. |
+| Tool returns HTTP 404 | Wrong path: use `OC_URL` exactly as copied from Connect. |
+| Tool returns HTTP 503 | The database is waking up; retry after the number of seconds in `Retry-After`. This server does not retry automatically. |
 | Search or a table-specific query fails | Check server feature availability, indexes, dimensions, and the returned error body. |
 | An ordinary `SELECT` is rejected before an HTTP request | Check the package version: npm 0.1.2 has the filter defect described above; the GitHub preview fixes it. |
 
@@ -214,8 +237,8 @@ HTTP failures are returned as MCP tool errors with the method, path, status,
 and server response body. Argument errors are also returned with `isError:
 true`. Treat tool outputs as potentially sensitive database content: the
 response body is passed through without redaction. Startup diagnostics go to
-stderr and report the timeout and whether database identity is enabled, without
-printing the host, tenant or credentials. stdout is reserved for MCP.
+stderr and report the timeout, plus a one-time warning for any retired setting,
+without printing the address or credentials. stdout is reserved for MCP.
 
 ## Develop from source
 
@@ -235,8 +258,11 @@ argument handling, HTTP mapping, and stdio setup are in
 [`src/http.ts`](src/http.ts). `npm run build` type-checks and compiles the
 source. `npm test` also exercises the compiled stdio server against a local
 HTTP fixture, including SELECT prefixes, timeout and cancellation disconnects,
-identity pairing, redirect refusal, credential isolation and the SQL-only scope
-of the flag. CI repeats these checks against the packed executable.
+address handling, retired settings, redirect refusal, credential isolation and
+the SQL-only scope of the flag. `test/access-terms.test.mjs` fails if a retired
+connection name or a database-client term appears in the documentation, the
+examples or the tool descriptions. CI repeats these checks against the packed
+executable.
 
 Maintainers can promote the current, verified GitHub preview through
 [`release.yml`](.github/workflows/release.yml) after configuring the npm trusted
