@@ -98,6 +98,8 @@ try {
   let result = await client.request('tools/call', examples[1]);
   assert.deepEqual(textPayload(result).rows, [{ value: 42 }]); checkLast('/sql','POST',{sql:'SELECT 42 AS value'}); ok('README SQL example');
   result = await client.request('tools/call', examples[2]);
+  assert.deepEqual(textPayload(result).rows, [{ value: 42 }]); checkLast('/sql','POST',{sql:'SELECT id, title FROM documents WHERE id = $1',params:[7]}); ok('README SQL example with params');
+  result = await client.request('tools/call', examples[3]);
   assert.deepEqual(textPayload(result), ['document-1']); checkLast('/fts/documents/body?q=release%20notes&limit=5','GET',undefined); ok('README FTS example');
   await client.request('tools/call',{name:'oc_fts_search',arguments:{table:'a/b',field:'x y',query:'a&b'}});
   checkLast('/fts/a%2Fb/x%20y?q=a%26b&limit=20','GET',undefined); ok('FTS default limit, encoding, and no mode');

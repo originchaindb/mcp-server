@@ -125,7 +125,7 @@ for (const [label, path, expected] of [
 for (const [label, settings, expected] of [
   ['missing address', { OC_URL: undefined }, /OC_URL is required and missing/],
   ['empty address', { OC_URL: '' }, /OC_URL is required and missing/],
-  ['missing token', { OC_TOKEN: undefined }, /OC_TOKEN is required and missing/],
+  ['missing token', { OC_TOKEN: undefined }, /OC_TOKEN is required and missing; set it to an access token from Access tokens, or the database's key where access tokens are not supported yet/],
   ['invalid bearer', { OC_TOKEN: 'secret token' }, /OC_TOKEN/],
   ['URL userinfo', { OC_URL: 'https://secret-user:secret-key@example.com/v1' }, /without credentials/],
   ['empty URL userinfo', { OC_URL: 'https://@example.com/v1' }, /without credentials/],
@@ -256,11 +256,94 @@ test('same-origin redirects are also refused without replaying a write', { timeo
   assert.equal(http.requests.length, 1);
 });
 
-test('HTTP 503 preserves the tool error without retrying an unsafe SQL write', { timeout }, async t => {
+test('HTTP 503 without Retry-After preserves the tool error and never resends a SQL write', { timeout }, async t => {
   const http = await fixture(t, (_request, res) => res.writeHead(503).end('{"error":{"code":"busy"}}'));
   const { client } = await connect(t, http.url);
   const result = await client.callTool({ name: 'oc_sql', arguments: { sql: 'DELETE FROM fixture_only' } });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /503.*busy/);
   assert.equal(http.requests.length, 1);
+});
+
+// A 503 with Retry-After in seconds means the database did not carry out the request
+// (it is waking up or briefly busy), so it is sent once more after that wait.
+const answerWith = steps => (request, res) => {
+  const [status, headers = {}] = steps[Math.min(request.index, steps.length - 1)];
+  res.writeHead(status, { 'content-type': 'application/json', ...headers });
+  res.end(status === 200 ? '{"kind":"select","columns":["v"],"rows":[{"v":"1"}]}' : '{"error":"warming"}');
+};
+const indexed = handler => {
+  let next = 0;
+  return (request, res) => { request.index = next++; request.at = Date.now(); handler(request, res); };
+};
+
+test('HTTP 503 with Retry-After is sent once more after that wait, unchanged', { timeout }, async t => {
+  const http = await fixture(t, indexed(answerWith([[503, { 'retry-after': '1' }], [200]])));
+  const { client } = await connect(t, http.url);
+  const args = { sql: 'INSERT INTO a VALUES ($1)', params: [1] };
+  const result = await client.callTool({ name: 'oc_sql', arguments: args });
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.deepEqual(JSON.parse(result.content[0].text).rows, [{ v: '1' }]);
+  assert.equal(http.requests.length, 2);
+  for (const request of http.requests) {
+    assert.equal(request.url, `${ADDRESS_PATH}/sql`);
+    assert.deepEqual(request.body, args);
+    assert.equal(request.headers.authorization, 'Bearer fixture-token');
+  }
+  assert.ok(http.requests[1].at - http.requests[0].at >= 900, 'the resend waits for Retry-After');
+});
+
+test('a second 503 with Retry-After is returned, not retried again', { timeout }, async t => {
+  const http = await fixture(t, indexed(answerWith([[503, { 'retry-after': '0' }]])));
+  const { client } = await connect(t, http.url);
+  for (const call of calls) assert.ok(await call.run(client).then(r => r.isError === true, () => true), call.name);
+  assert.equal(http.requests.length, calls.length * 2, 'every door is retried exactly once');
+});
+
+for (const [label, status, headers] of [
+  ['an HTTP-date Retry-After', 503, { 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' }],
+  ['a fractional Retry-After', 503, { 'retry-after': '1.5' }],
+  ['a Retry-After longer than the deadline', 503, { 'retry-after': '30' }],
+  ['a 429 with Retry-After', 429, { 'retry-after': '0' }],
+  ['a 502 with Retry-After', 502, { 'retry-after': '0' }],
+]) {
+  test(`${label} is not retried`, { timeout }, async t => {
+    const http = await fixture(t, indexed(answerWith([[status, headers], [200]])));
+    const { client } = await connect(t, http.url, { OC_MCP_TIMEOUT_MS: '10000' });
+    const started = Date.now();
+    const result = await client.callTool({ name: 'oc_sql', arguments: { sql: 'DELETE FROM fixture_only' } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, new RegExp(`${status}`));
+    assert.equal(http.requests.length, 1);
+    assert.ok(Date.now() - started < 5000, 'a wait that does not fit the deadline is not started');
+  });
+}
+
+test('MCP cancellation during the Retry-After wait sends nothing more', { timeout }, async t => {
+  const http = await fixture(t, indexed(answerWith([[503, { 'retry-after': '1' }], [200]])));
+  const { client } = await connect(t, http.url, { OC_MCP_TIMEOUT_MS: '10000' });
+  const controller = new AbortController();
+  const rejected = assert.rejects(client.callTool(sql, undefined, { signal: controller.signal }));
+  await waitFor(() => http.requests.length === 1, 'first attempt reached fixture');
+  controller.abort();
+  await rejected;
+  // The positive test above shows the resend arrives about 1 s after the 503.
+  await new Promise(r => setTimeout(r, 1500));
+  assert.equal(http.requests.length, 1);
+  assert.notEqual((await client.callTool(sql)).isError, true);
+  assert.equal(http.requests.length, 2);
+});
+
+test('the deadline covers the Retry-After wait and the resend', { timeout }, async t => {
+  const http = await fixture(t, indexed((request, res) => {
+    if (request.index === 0) answerWith([[503, { 'retry-after': '1' }]])(request, res);
+    // The resend stalls; the call's one deadline must still end it.
+  }));
+  const { client } = await connect(t, http.url, { OC_MCP_TIMEOUT_MS: '1500' });
+  const started = Date.now();
+  const result = await client.callTool(sql);
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /timed out after 1500 ms/);
+  assert.ok(Date.now() - started < 4000, 'one deadline for the whole call');
+  assert.equal(http.requests.length, 2);
 });

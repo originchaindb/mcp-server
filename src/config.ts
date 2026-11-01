@@ -22,8 +22,10 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
   const warnings: string[] = [];
   const token = readToken(env);
   rejectRetiredIdentity(env);
-  const url = env.OC_URL !== undefined ? readUrl(env) : readLegacyAddress(env, warnings);
-  if (env.OC_URL !== undefined && (env.OC_HOST !== undefined || env.OC_TENANT !== undefined)) {
+  // An empty OC_URL counts as unset, so a template with a blank OC_URL still reaches
+  // the one-release fallback below.
+  const url = env.OC_URL ? readUrl(env) : readLegacyAddress(env, warnings);
+  if (env.OC_URL && (env.OC_HOST !== undefined || env.OC_TENANT !== undefined)) {
     warnings.push('OC_HOST and OC_TENANT are ignored because OC_URL is set; remove them from this configuration.');
   }
   const rawTimeout = env.OC_MCP_TIMEOUT_MS ?? '60000';
@@ -37,7 +39,8 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 function readToken(env: NodeJS.ProcessEnv): string {
   const token = env.OC_TOKEN;
   if (!token) {
-    throw new Error('env var OC_TOKEN is required and missing; set it to an access token from Access tokens');
+    throw new Error('env var OC_TOKEN is required and missing; set it to an access token from Access tokens, ' +
+      "or the database's key where access tokens are not supported yet");
   }
   if (!/^[\x21-\x7e]+$/.test(token)) {
     throw new Error('OC_TOKEN must contain only visible ASCII characters without spaces');
@@ -114,6 +117,7 @@ function rejectRetiredIdentity(env: NodeJS.ProcessEnv): void {
   const set = ['OC_DB_USER', 'OC_DB_KEY'].filter(name => env[name] !== undefined);
   if (set.length) {
     throw new Error(`${set.join(' and ')} ${set.length > 1 ? 'are' : 'is'} no longer supported; ` +
-      'create an access token for that database identity, set it as OC_TOKEN, and remove the database-user settings');
+      'create an access token for that database identity, set it as OC_TOKEN, and remove the database-user settings. ' +
+      'If this database does not support access tokens yet, keep using 0.2.0-rc.1 until it does.');
   }
 }

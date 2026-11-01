@@ -91,7 +91,7 @@ tool. Reload your host to refresh its tool list after upgrading.
 | --- | --- | --- |
 | `OC_URL` | Yes | Your database's address, copied from Connect. Use it exactly as shown: the server appends each tool's path, such as `/sql`, and never builds, edits or parses the address. A trailing slash is ignored. |
 | `OC_TOKEN` | Yes | An access token (`oc_pat_...`) from Access tokens, sent unchanged as `Authorization: Bearer <OC_TOKEN>`. On databases where access tokens are not supported yet, use that database's key. |
-| `OC_MCP_TIMEOUT_MS` | No | Per-HTTP-request deadline in milliseconds, including response-body reads. Default `60000`; integer range `1`–`2147483647`. |
+| `OC_MCP_TIMEOUT_MS` | No | Deadline in milliseconds for each tool call or resource read, covering the HTTP request, the response-body read and the one resend after a `503` with `Retry-After`. Default `60000`; integer range `1`–`2147483647`. |
 | `OC_ALLOW_INSECURE_HTTP` | No | Exactly `true` permits a non-loopback HTTP address. Otherwise HTTPS is required except for `localhost`, `127.0.0.1` and `[::1]`. |
 | `OC_MCP_READONLY` | No | Exactly `true` enables the limited SQL-prefix filter. It applies only to `oc_sql`; see [Permissions and limitations](#permissions-and-limitations). |
 
@@ -103,10 +103,11 @@ visible ASCII without spaces or control characters.
 
 `OC_URL` must be an absolute HTTP(S) address without userinfo, a query or a
 fragment, and its path must not contain `.` or `..` segments or characters a
-URL parser would rewrite. Tool path values are URL-encoded. No caller-supplied
-tool argument can select another address. **All redirects are refused**,
-including same-origin redirects; use `OC_URL` exactly as copied from Connect.
-Redirect targets never receive the token from this server.
+URL parser would rewrite. Tool path values are URL-encoded, and a `table` or
+`field` that is empty, `.` or `..` is refused before any request, so no tool
+argument can leave `OC_URL`'s path or select another address. **All redirects
+are refused**, including same-origin redirects; use `OC_URL` exactly as copied
+from Connect. Redirect targets never receive the token from this server.
 
 **Upgrading from 0.2.x and earlier:** the address is now one value, `OC_URL`,
 copied from Connect, in place of the earlier separate host and database-id
@@ -115,7 +116,8 @@ when `OC_URL` is unset and prints a warning on stderr naming the replacement;
 the next minor release drops them. Database-user name and key settings are no
 longer supported: the server refuses to start while either is set, rather than
 send requests with the token's own permissions. Create an access token for that
-database identity and use it as `OC_TOKEN`.
+database identity and use it as `OC_TOKEN`. If your database does not support
+access tokens yet, keep using 0.2.0-rc.1 until it does.
 
 **Migrating from 0.1.x:** remote plain HTTP requires the explicit
 `OC_ALLOW_INSECURE_HTTP=true` opt-in, and redirected endpoints must be replaced
@@ -133,12 +135,17 @@ Names and types are case-sensitive.
 | Tool | Required arguments | Optional arguments | HTTPS request |
 | --- | --- | --- | --- |
 | `oc_list_schemas` | None (`{}`) | None | `GET $OC_URL/schemas` |
-| `oc_sql` | `sql`: string | None | `POST $OC_URL/sql` with `{ "sql": ... }` |
+| `oc_sql` | `sql`: string | `params`: array of values for `$1`, `$2`, ... | `POST $OC_URL/sql` with `{ "sql": ..., "params": [...] }`; `params` is sent only when given. |
 | `oc_vector_topk` | `table`: string, `vector`: number array | `k`: positive integer (10), `mode`: `"fast"` or `"high_recall"` (`"high_recall"`) | `POST $OC_URL/vector/{table}/topk`; maps `vector` to `query` and sets `dim` to its length. |
 | `oc_fts_search` | `table`: string, `field`: string, `query`: string | `limit`: positive integer (20) | `GET $OC_URL/fts/{table}/{field}?q=...&limit=...` |
 
 The only credential on each request is `Authorization: Bearer <OC_TOKEN>`; no
 other identity header is sent.
+
+Only `oc_sql` uses the documented access path, `$OC_URL/sql`. The schema,
+vector and full-text tools call other paths at the same address with the same
+token; whether every database accepts an access token on those paths has not
+been verified yet.
 
 Start with schema discovery, or run a query that does not require an existing
 table:
@@ -147,6 +154,19 @@ table:
 {
   "name": "oc_sql",
   "arguments": { "sql": "SELECT 42 AS value" }
+}
+```
+
+Put values in `params` and refer to them as `$1`, `$2`, ... in the statement;
+the database binds them in order. Never splice values into the SQL text:
+
+```json
+{
+  "name": "oc_sql",
+  "arguments": {
+    "sql": "SELECT id, title FROM documents WHERE id = $1",
+    "params": [7]
+  }
 }
 ```
 
@@ -167,7 +187,6 @@ For an existing table with indexed text, a full-text call looks like:
 Table names, indexed fields and vector dimensions depend on
 your database. The FTS tool does not expose a search-mode argument, so it uses
 the engine's default mode; do not assume its results contain BM25 scores.
-The SQL tool accepts a statement string only; it has no bound-parameter input.
 
 Successful calls return one MCP text block containing the server response as
 formatted JSON, or unchanged text when the HTTP response is not JSON. The
@@ -201,8 +220,9 @@ Use database permissions for read-only access, not this compatibility flag.
 
 ## Deadlines and cancellation
 
-Each HTTP request has its own deadline, covering connection setup and the full
-response-body read. A deadline failure returns a tool error identifying the
+Each tool call or resource read has one deadline, covering connection setup,
+the full response-body read and, after a `503` with `Retry-After`, the wait and
+the one resend. A deadline failure returns a tool error identifying the
 configured timeout; a schema-resource read returns a protocol error.
 
 When the MCP host cancels a pending tool or resource request, its cancellation
@@ -212,9 +232,13 @@ only stops displaying a result without sending cancellation does not cancel
 the HTTP request; its configured deadline still applies.
 
 **Timeout or cancellation does not prove a submitted database operation was
-rolled back.** The engine may already have executed it. There are no automatic
-retries, including for failed SQL writes. Inspect the operation's outcome before
-deciding whether to submit it again.
+rolled back.** The engine may already have executed it. The only automatic
+retry is one resend after HTTP 503 with a `Retry-After` in whole seconds, which
+the database returns when it has not carried out the request; it is sent only
+if the wait fits inside the deadline. Timeouts, cancellations, a 503 without
+`Retry-After` and every other error are never retried, including for SQL
+writes. Inspect the operation's outcome before deciding whether to submit it
+again.
 
 ## Errors and troubleshooting
 
@@ -226,10 +250,13 @@ deciding whether to submit it again.
 | Tool reports a refused redirect | Use `OC_URL` exactly as copied from Connect; the server will not follow the redirect. |
 | Tool reports a timeout | Check the database and network, then adjust `OC_MCP_TIMEOUT_MS` if appropriate. A submitted write may already have completed. |
 | Host cannot start `npx` | Install Node.js 20+, check the host's executable path, or configure the installed `originchain-mcp` executable. |
+| Tool returns HTTP 400 | Malformed request, or this address is not a database: use `OC_URL` exactly as copied from Connect. |
 | Tool returns HTTP 401 | This database does not accept this token: wrong database, revoked, expired, not active yet, or no database identity yet (`unknown token`). Set up your database identity from the token's details, or ask an admin. |
+| Tool returns HTTP 402 | A usage limit was reached. |
 | Tool returns HTTP 403 | `OC_URL` was changed, or a read-only token tried to write. |
 | Tool returns HTTP 404 | Wrong path: use `OC_URL` exactly as copied from Connect. |
-| Tool returns HTTP 503 | The database is waking up; retry after the number of seconds in `Retry-After`. This server does not retry automatically. |
+| Tool returns HTTP 429 | Too many requests; wait before sending more. This server does not retry it. |
+| Tool returns HTTP 503 | The database is waking up or briefly busy. When the response carries `Retry-After` in seconds and the wait fits inside `OC_MCP_TIMEOUT_MS`, this server waits and sends the request once more; if that also fails, retry after the number of seconds in `Retry-After`. |
 | Search or a table-specific query fails | Check server feature availability, indexes, dimensions, and the returned error body. |
 | An ordinary `SELECT` is rejected before an HTTP request | Check the package version: npm 0.1.2 has the filter defect described above; the GitHub preview fixes it. |
 
@@ -258,11 +285,12 @@ argument handling, HTTP mapping, and stdio setup are in
 [`src/http.ts`](src/http.ts). `npm run build` type-checks and compiles the
 source. `npm test` also exercises the compiled stdio server against a local
 HTTP fixture, including SELECT prefixes, timeout and cancellation disconnects,
-address handling, retired settings, redirect refusal, credential isolation and
-the SQL-only scope of the flag. `test/access-terms.test.mjs` fails if a retired
-connection name or a database-client term appears in the documentation, the
-examples or the tool descriptions. CI repeats these checks against the packed
-executable.
+address handling, retired settings, redirect refusal, credential isolation,
+bound parameters, the one resend after a `503` with `Retry-After`, and the
+SQL-only scope of the flag. `test/access-terms.test.mjs` fails if a retired
+connection name, a database-client term or the address's path appears in the
+documentation, the examples or the tool descriptions. CI repeats these checks
+against the packed executable.
 
 Maintainers can promote the current, verified GitHub preview through
 [`release.yml`](.github/workflows/release.yml) after configuring the npm trusted

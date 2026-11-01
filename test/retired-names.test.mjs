@@ -96,6 +96,16 @@ test('the retired two-part address still works for one release, with exactly one
   }
 });
 
+test('an empty OC_URL counts as unset, so the retired address still works for one release', { timeout }, async t => {
+  const http = await fixture(t);
+  const { client, diagnostics } = await start(t, { OC_URL: '', OC_HOST: http.origin, OC_TENANT: 'legacy' });
+  assert.notEqual((await client.callTool({ name: 'oc_sql', arguments: { sql: 'SELECT 1' } })).isError, true);
+  assert.deepEqual(http.requests.map(r => r.url), ['/v1/tenants/legacy/sql']);
+  assert.equal(countOf(diagnostics(), 'WARNING'), 1, diagnostics());
+  assert.match(diagnostics(), /OC_HOST and OC_TENANT are deprecated/);
+  assert.doesNotMatch(diagnostics(), /ignored because OC_URL is set/);
+});
+
 test('OC_URL wins over the retired address settings, which are reported as ignored', { timeout }, async t => {
   const http = await fixture(t);
   const { client, diagnostics } = await start(t, {
@@ -125,6 +135,10 @@ for (const [label, settings, expected] of [
     const http = await fixture(t);
     const { diagnostics } = await start(t, settings(http.origin), true);
     assert.match(diagnostics(), expected);
+    if (/OC_DB_/.test(label + JSON.stringify(settings('')))) {
+      // Databases without access tokens have no token to create; the message says what to do there.
+      assert.match(diagnostics(), /If this database does not support access tokens yet, keep using 0\.2\.0-rc\.1 until it does\./);
+    }
     assert.deepEqual(http.requests, []);
     for (const value of ['secret-user', 'secret-key', 'example.com', http.origin]) assert.ok(!diagnostics().includes(value));
   });
