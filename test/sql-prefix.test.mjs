@@ -7,6 +7,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 // Exercise the compiled stdio server and its outgoing HTTP requests. The fixture
 // never connects to a database, and its bearer token is deliberately synthetic.
+// OC_URL is opaque, so this file uses an arbitrary path prefix rather than today's shape.
+const ADDRESS_PATH = '/db/sql-prefix-fixture';
 async function connect(t, readOnly) {
   const requests = [];
   const fixture = createServer(async (req, res) => {
@@ -19,8 +21,7 @@ async function connect(t, readOnly) {
   await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve));
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OC_'))),
-    OC_HOST: `http://127.0.0.1:${fixture.address().port}`,
-    OC_TENANT: 'test-tenant',
+    OC_URL: `http://127.0.0.1:${fixture.address().port}${ADDRESS_PATH}`,
     OC_TOKEN: 'fixture-token',
   };
   if (readOnly) env.OC_MCP_READONLY = 'true';
@@ -54,7 +55,7 @@ for (const sql of ['SELECT 42 AS value', ' \n\tselect 42 AS value', 'SeLeCt(42) 
     const { client, requests } = await connect(t, true);
     const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
     assert.notEqual(result.isError, true);
-    assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/sql', body: { sql } }]);
+    assert.deepEqual(requests, [{ method: 'POST', path: `${ADDRESS_PATH}/sql`, body: { sql } }]);
     assert.deepEqual(JSON.parse(result.content[0].text), { rows: [{ value: 42 }] });
   });
 }
@@ -74,7 +75,7 @@ test('unset filter preserves SQL forwarding to database authorization', { timeou
   const sql = 'DELETE FROM fixture_only';
   const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
   assert.notEqual(result.isError, true);
-  assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/sql', body: { sql } }]);
+  assert.deepEqual(requests, [{ method: 'POST', path: `${ADDRESS_PATH}/sql`, body: { sql } }]);
 });
 
 test('advertised tool set excludes the removed service and rejects it before HTTP', { timeout: 60000 }, async t => {
@@ -94,5 +95,5 @@ test('prefix filtering is not a SQL parser or read-only authorization boundary',
   const sql = 'SELECT 1; DELETE FROM fixture_only';
   const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
   assert.notEqual(result.isError, true);
-  assert.deepEqual(requests, [{ method: 'POST', path: '/v1/tenants/test-tenant/sql', body: { sql } }]);
+  assert.deepEqual(requests, [{ method: 'POST', path: `${ADDRESS_PATH}/sql`, body: { sql } }]);
 });

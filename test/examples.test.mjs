@@ -23,9 +23,10 @@ test('documented MCP client calls four read operations through stdio', { timeout
     res.end(JSON.stringify(payload));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  // OC_URL is opaque: the example passes it through and the server appends door paths.
+  const base = '/v1/tenants/01hzexamplefixture000000000';
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('OC_'))),
-    OC_HOST: `http://127.0.0.1:${server.address().port}`, OC_TENANT: 'fixture', OC_TOKEN: 'fixture-token',
-    OC_DB_USER: 'fixture-user', OC_DB_KEY: 'fixture-key', OC_TABLE: 'sample.items',
+    OC_URL: `http://127.0.0.1:${server.address().port}${base}`, OC_TOKEN: 'fixture-token', OC_TABLE: 'sample.items',
     OC_FTS_FIELD: 'body', OC_QUERY: 'tea & mug', OC_QUERY_VECTOR: '[1,0]' };
   const script = fileURLToPath(new URL('../examples/client.mjs', import.meta.url));
   const run = (operation, overrides = {}) => exec(process.execPath, [script, operation], { env: { ...env, ...overrides }, timeout: 45000 });
@@ -35,16 +36,15 @@ test('documented MCP client calls four read operations through stdio', { timeout
     assert.deepEqual(outputs, { sql: { rows: [{ value: 1 }] }, schemas: ['sample.items'], fts: ['item-1'], vector: [{ id: 'item-1', score: 0.9 }] });
     assert.equal(requests.length, 4);
     assert.deepEqual(requests.map(r => r.method), ['POST', 'GET', 'GET', 'POST']);
-    const base = '/v1/tenants/fixture';
     assert.deepEqual(requests.map(r => r.url), [base + '/sql', base + '/schemas', base + '/fts/sample.items/body?q=tea%20%26%20mug&limit=5', base + '/vector/sample.items/topk']);
     assert.deepEqual(requests[0].body, { sql: 'SELECT 1 AS value' });
     assert.deepEqual(requests[3].body, { query: [1,0], dim: 2, k: 5, mode: 'high_recall' });
     for (const { headers } of requests) {
       assert.equal(headers.authorization, 'Bearer fixture-token');
-      assert.equal(headers['x-oc-db-user'], 'fixture-user');
-      assert.equal(headers['x-oc-db-key'], 'fixture-key');
+      assert.deepEqual(Object.keys(headers).filter(name => name.startsWith('x-oc-')), []);
     }
     await run('--help');
+    await assert.rejects(run('sql', { OC_URL: '' }));
     await assert.rejects(run('vector', { OC_QUERY_VECTOR: '[true]' }));
     await assert.rejects(run('sql', { OC_TOKEN: '' }));
     assert.equal(requests.length, 4);

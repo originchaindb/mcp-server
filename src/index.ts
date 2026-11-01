@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Stdio MCP tools and a schema resource backed by the configured OriginChainDB origin. */
+/** Stdio MCP tools and a schema resource for the OriginChainDB database at OC_URL, over HTTPS with OC_TOKEN. */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -20,6 +20,8 @@ const config = (() => {
     process.exit(1);
   }
 })();
+// Configuration warnings go to stderr once at startup; stdout is reserved for MCP.
+for (const warning of config.warnings) process.stderr.write(`[originchain-mcp] WARNING: ${warning}\n`);
 const ocFetch = createHttpClient(config);
 
 function asTextResult(payload: unknown) {
@@ -52,11 +54,15 @@ const TOOLS = [
   {
     name: "oc_sql",
     description:
-      "Run a SQL statement against the OriginChain tenant; database permissions govern what is allowed. Returns the engine response as JSON. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
+      "Run a SQL statement against the OriginChainDB database (POST $OC_URL/sql). Put values in `params` and refer to them as $1, $2, ... in `sql`. The access token's database permissions govern what is allowed. Returns the database response as JSON; a SELECT returns {\"kind\":\"select\",\"columns\":[...],\"rows\":[...]}. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
     inputSchema: {
       type: "object",
       properties: {
         sql: { type: "string", description: "SQL statement. The optional SQL-prefix filter permits SELECT prefixes only." },
+        params: {
+          type: "array",
+          description: "Values the database binds to $1, $2, ... in `sql`, in order (the first value is $1). Pass values here; never splice them into the SQL text.",
+        },
       },
       required: ["sql"],
       additionalProperties: false,
@@ -65,7 +71,7 @@ const TOOLS = [
   {
     name: "oc_vector_topk",
     description:
-      "Vector similarity search. Returns the top-k nearest rows in `table` to the supplied query vector.",
+      "Vector similarity search in the OriginChainDB database. Returns the top-k nearest rows in `table` to the supplied query vector.",
     inputSchema: {
       type: "object",
       properties: {
@@ -94,7 +100,7 @@ const TOOLS = [
   {
     name: "oc_fts_search",
     description:
-      "Full-text search over an indexed string field in `table`, using the engine's default search mode. Response shape depends on that mode.",
+      "Full-text search over an indexed string field in `table` in the OriginChainDB database, using the default search mode. Response shape depends on that mode.",
     inputSchema: {
       type: "object",
       properties: {
@@ -114,7 +120,7 @@ const TOOLS = [
   {
     name: "oc_list_schemas",
     description:
-      "List all schema IDs registered in the tenant. Use this for discovery before issuing typed queries.",
+      "List all schema IDs registered in the OriginChainDB database. Use this for discovery before issuing typed queries.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -127,9 +133,18 @@ const TOOLS = [
 // Tool implementations (one short comment each)
 // ---------------------------------------------------------------------------
 
-// POST /sql {sql}
-async function callSql(args: { sql: string }, signal: AbortSignal) {
-  return ocFetch("POST", `/sql`, { sql: args.sql }, signal);
+// POST /sql {sql, params?}; params is sent only when the caller gave it.
+async function callSql(args: { sql: string; params?: unknown[] }, signal: AbortSignal) {
+  const body = args.params === undefined ? { sql: args.sql } : { sql: args.sql, params: args.params };
+  return ocFetch("POST", `/sql`, body, signal);
+}
+
+// A path value of "", "." or ".." would make the URL parser drop or climb a path
+// segment, so the request would leave OC_URL's path. Everything else is encoded.
+function requirePathNames(...values: string[]) {
+  if (values.some((v) => v === "" || v === "." || v === "..")) {
+    throw new Error("`table` and `field` must not be empty, `.` or `..`");
+  }
 }
 
 // POST /vector/{table}/topk {query, dim, k, mode}
@@ -215,6 +230,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     switch (name) {
       case "oc_sql": {
         if (typeof args.sql !== "string") throw new Error("`sql` must be a string");
+        if (args.params !== undefined && !Array.isArray(args.params))
+          throw new Error("`params` must be an array of values for $1, $2, ...");
         // Optional SQL prefix filter only. This is not a SQL parser or an
         // authorization boundary, and it does not restrict other tools.
         if (
@@ -225,11 +242,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
             "OC_MCP_READONLY=true — oc_sql requires a SELECT prefix",
           );
         }
-        return asTextResult(await callSql({ sql: args.sql }, extra.signal));
+        return asTextResult(await callSql({ sql: args.sql, params: args.params as unknown[] | undefined }, extra.signal));
       }
       case "oc_vector_topk": {
         if (typeof args.table !== "string")
           throw new Error("`table` must be a string");
+        requirePathNames(args.table);
         if (!Array.isArray(args.vector) || !args.vector.every((v) => typeof v === "number"))
           throw new Error("`vector` must be an array of numbers");
         const k = args.k === undefined ? undefined : Number(args.k);
@@ -248,6 +266,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
         if (typeof args.table !== "string") throw new Error("`table` must be a string");
         if (typeof args.field !== "string") throw new Error("`field` must be a string");
         if (typeof args.query !== "string") throw new Error("`query` must be a string");
+        requirePathNames(args.table, args.field);
         const limit = args.limit === undefined ? undefined : Number(args.limit);
         return asTextResult(
           await callFtsSearch({
@@ -276,7 +295,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       uri: "originchain://schemas",
       name: "OriginChain schemas",
       description:
-        "List of schema IDs registered in this tenant. Auto-discoverable for context attach.",
+        "List of schema IDs registered in this database. Auto-discoverable for context attach.",
       mimeType: "application/json",
     },
   ],
@@ -306,7 +325,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write(
-    `[originchain-mcp] ready; request timeout=${config.timeoutMs}ms; database identity=${config.dbUser === undefined ? 'disabled' : 'enabled'}\n`,
+    `[originchain-mcp] ready; request timeout=${config.timeoutMs}ms\n`,
   );
 }
 

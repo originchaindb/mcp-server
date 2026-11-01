@@ -1,8 +1,27 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Config } from './config.js';
 
-/** One HTTP attempt per MCP call; the deadline includes reading the response body. */
+/**
+ * `Retry-After` as a whole number of seconds, in milliseconds; anything else
+ * (absent, an HTTP date, a fraction) is not a retry instruction here.
+ */
+function retryAfterMs(value: string | null): number | undefined {
+  if (value === null || !/^\d{1,9}$/.test(value.trim())) return undefined;
+  return Number(value.trim()) * 1000;
+}
+
+/**
+ * At most two HTTP attempts per MCP call. The only retry is one resend after a
+ * 503 whose `Retry-After` is a whole number of seconds: the database answers that
+ * way when it has not carried out the request (waking up, or briefly busy) and it
+ * can be sent again. A 503 without that header, every other
+ * status, a timeout and a cancellation are never retried. The deadline covers the
+ * whole call: both attempts, the wait between them, and reading the response body;
+ * a wait that would not fit inside it is not started.
+ * Every request goes to OC_URL exactly as configured, with the door path appended.
+ */
 export function createHttpClient(config: Config) {
-  const base = `${config.origin}/v1/tenants/${encodeURIComponent(config.tenant)}`;
+  const base = config.url;
   return async function ocFetch(
     method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal,
   ): Promise<unknown> {
@@ -17,6 +36,7 @@ export function createHttpClient(config: Config) {
     const onCancel = () => abort('caller');
     signal?.addEventListener('abort', onCancel, { once: true });
     if (signal?.aborted) onCancel();
+    const startedAt = Date.now();
     const timer = setTimeout(() => abort('timeout'), config.timeoutMs);
     timer.unref();
     const operation = `OriginChain ${method} ${path}`;
@@ -25,19 +45,23 @@ export function createHttpClient(config: Config) {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${config.token}`, Accept: 'application/json',
       };
-      if (config.dbUser !== undefined && config.dbKey !== undefined) {
-        headers['X-OC-DB-User'] = config.dbUser;
-        headers['X-OC-DB-Key'] = config.dbKey;
-      }
       const init: RequestInit = { method, headers, signal: controller.signal, redirect: 'manual' };
       if (body !== undefined) {
         headers['Content-Type'] = 'application/json';
         init.body = JSON.stringify(body);
       }
-      const res = await fetch(`${base}${path}`, init);
+      let res = await fetch(`${base}${path}`, init);
+      if (res.status === 503) {
+        const waitMs = retryAfterMs(res.headers.get('retry-after'));
+        if (waitMs !== undefined && Date.now() - startedAt + waitMs < config.timeoutMs) {
+          await res.body?.cancel();
+          await sleep(waitMs, undefined, { signal: controller.signal });
+          res = await fetch(`${base}${path}`, init);
+        }
+      }
       if (res.status >= 300 && res.status < 400) {
         await res.body?.cancel();
-        throw new Error(`${operation}: HTTP redirect (${res.status}) refused; configure OC_HOST with the direct database origin`);
+        throw new Error(`${operation}: HTTP redirect (${res.status}) refused; use OC_URL exactly as copied from Connect`);
       }
       const text = await res.text();
       let parsed: unknown = null;

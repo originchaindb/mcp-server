@@ -12,6 +12,8 @@ const examples = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON
 const config = examples[0].mcpServers.originchaindb;
 assert.equal(config.command, 'npx');
 assert.deepEqual(config.args, ['--yes', '--package', '/absolute/path/originchain-mcp-server-0.3.0-rc.1.tgz', 'originchain-mcp']);
+// The README shows exactly the two application values.
+assert.deepEqual(Object.keys(config.env), ['OC_URL', 'OC_TOKEN']);
 const cases = [];
 const requests = [];
 const fixture = createServer(async (req, res) => {
@@ -36,9 +38,9 @@ const fixture = createServer(async (req, res) => {
 });
 await new Promise(r => fixture.listen(0, '127.0.0.1', r));
 const address = fixture.address();
-const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OC_'))), OC_HOST: `http://127.0.0.1:${address.port}`, OC_TENANT: 'docs tenant', OC_TOKEN: 'fixture-token' };
+const base = '/v1/tenants/01hzdocsfixture0000000000000';
+const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('OC_'))), OC_URL: `http://127.0.0.1:${address.port}${base}`, OC_TOKEN: 'fixture-token' };
 delete env.OC_MCP_READONLY;
-const base = '/v1/tenants/docs%20tenant';
 
 function start(overrides = {}) {
   const childEnv = { ...env, ...overrides };
@@ -96,6 +98,8 @@ try {
   let result = await client.request('tools/call', examples[1]);
   assert.deepEqual(textPayload(result).rows, [{ value: 42 }]); checkLast('/sql','POST',{sql:'SELECT 42 AS value'}); ok('README SQL example');
   result = await client.request('tools/call', examples[2]);
+  assert.deepEqual(textPayload(result).rows, [{ value: 42 }]); checkLast('/sql','POST',{sql:'SELECT id, title FROM documents WHERE id = $1',params:[7]}); ok('README SQL example with params');
+  result = await client.request('tools/call', examples[3]);
   assert.deepEqual(textPayload(result), ['document-1']); checkLast('/fts/documents/body?q=release%20notes&limit=5','GET',undefined); ok('README FTS example');
   await client.request('tools/call',{name:'oc_fts_search',arguments:{table:'a/b',field:'x y',query:'a&b'}});
   checkLast('/fts/a%2Fb/x%20y?q=a%26b&limit=20','GET',undefined); ok('FTS default limit, encoding, and no mode');
@@ -121,6 +125,7 @@ try {
   assert.equal(result.content[0].text,'fixture plain text'); ok('non-JSON response unchanged');
   await client.request('tools/call',{name:'oc_sql',arguments:{sql:'DELETE FROM fixture_only WHERE id = 1'}});
   checkLast('/sql','POST',{sql:'DELETE FROM fixture_only WHERE id = 1'}); ok('default SQL forwards writes to mock only');
+  assert.match(client.stderr(),/ready; request timeout=/); assert.doesNotMatch(client.stderr(),/WARNING/); ok('README configuration prints no retired-setting warning');
   await client.close(); client = start({OC_MCP_READONLY:'true'}); await initialize(client);
   const before = requests.length;
   result = await client.request('tools/call',examples[1]);
@@ -131,7 +136,7 @@ try {
   const missing = start({OC_TOKEN:undefined});
   const exitCode = await new Promise((resolve,reject) => { const t=setTimeout(()=>{missing.child.kill();reject(new Error('missing token did not exit'));},30000); missing.child.once('exit',code=>{clearTimeout(t);resolve(code);}); });
   assert.equal(exitCode,1); assert.match(missing.stderr(),/OC_TOKEN is required and missing/); ok('missing required environment fails at startup');
-  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.3.0-rc.1',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live tenant or credentials'},null,2)+'\n');
+  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.3.0-rc.1',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live database or credentials'},null,2)+'\n');
   console.log(JSON.stringify({variant,node:process.version,passed:cases.length}));
 } finally {
   if(client) await client.close();
