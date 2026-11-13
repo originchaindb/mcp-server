@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OriginChainDB remote MCP, with isolated OAuth grants and managed HTTPS
+Parameters:
+  ArtifactBucket: {Type: String}
+  ArtifactKey: {Type: String}
+  CertificateArn: {Type: String}
+  HostedZoneId: {Type: String}
+Resources:
+  Grants:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: expires, Enabled: true}
+  Key:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Encrypt OriginChainDB MCP database grants
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+            Action: 'kms:*'
+            Resource: '*'
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/originchaindb-marketplace-mcp
+      RetentionInDays: 7
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      Policies:
+        - PolicyName: Connector
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !GetAtt Logs.Arn
+              - Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem']
+                Resource: !GetAtt Grants.Arn
+              - Effect: Allow
+                Action: ['kms:Encrypt','kms:Decrypt']
+                Resource: !GetAtt Key.Arn
+                Condition:
+                  StringEquals: {'kms:EncryptionContext:service': originchaindb-mcp}
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: originchaindb-marketplace-mcp
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Handler: hosted/app.handler
+      Role: !GetAtt Role.Arn
+      MemorySize: 512
+      Timeout: 27
+      Runtime: nodejs22.x
+      Environment:
+        Variables:
+          GRANT_KEY: !GetAtt Key.Arn
+          GRANT_TABLE: !Ref Grants
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: originchaindb-marketplace-mcp
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: true
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: '2.0'
+  Route:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref Api, RouteKey: '$default', Target: !Sub 'integrations/${Integration}'}
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: '$default'
+      AutoDeploy: true
+      DefaultRouteSettings: {ThrottlingBurstLimit: 40, ThrottlingRateLimit: 15}
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref Function
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+  Domain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: mcp.originchain.ai
+      DomainNameConfigurations: [{CertificateArn: !Ref CertificateArn, EndpointType: REGIONAL, SecurityPolicy: TLS_1_2}]
+  Mapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties: {ApiId: !Ref Api, DomainName: !Ref Domain, Stage: !Ref Stage}
+  Record:
+    Type: AWS::Route53::RecordSet
+    DependsOn: Mapping
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: mcp.originchain.ai
+      Type: A
+      AliasTarget: {DNSName: !GetAtt Domain.RegionalDomainName, HostedZoneId: !GetAtt Domain.RegionalHostedZoneId}
+Outputs:
+  Endpoint: {Value: 'https://mcp.originchain.ai/mcp'}

@@ -1,7 +1,7 @@
 {
   "name": "@originchain/mcp-server",
   "version": "0.3.0-rc.1",
-  "description": "Model Context Protocol (MCP) server for OriginChain \u2014 exposes SQL, vector, full-text, and schema tools to Claude Desktop, Cursor, and any MCP-aware AI IDE.",
+  "description": "Model Context Protocol (MCP) server for OriginChain — exposes SQL, vector, full-text, and schema tools to Claude Desktop, Cursor, and any MCP-aware AI IDE.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -43,7 +43,12 @@
   },
   "author": "Silicoyn Technologies Pvt Ltd",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.2"
+    "@aws-sdk/client-dynamodb": "^3.1168.0",
+    "@aws-sdk/client-kms": "^3.1168.0",
+    "@aws-sdk/lib-dynamodb": "^3.1168.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "express": "^5.3.0",
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",

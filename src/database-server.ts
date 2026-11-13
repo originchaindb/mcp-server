@@ -1,0 +1,310 @@
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+
+import {
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+import type { Config } from './config.js';
+import { createHttpClient } from './http.js';
+
+import { createRequire } from "node:module";
+const pkgVersion: string = createRequire(import.meta.url)("../package.json").version;
+
+function asTextResult(payload: unknown) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          typeof payload === "string"
+            ? payload
+            : JSON.stringify(payload, null, 2),
+      },
+    ],
+  };
+}
+
+function asErrorResult(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: msg }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tool definitions
+// ---------------------------------------------------------------------------
+
+const TOOLS = [
+  {
+    name: "oc_sql",
+    title: "Run SQL",
+    description:
+      "Run a SQL statement against the OriginChainDB database (POST $OC_URL/sql). Put values in `params` and refer to them as $1, $2, ... in `sql`. The access token's database permissions govern what is allowed. Returns the database response as JSON; a SELECT returns {\"kind\":\"select\",\"columns\":[...],\"rows\":[...]}. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sql: { type: "string", description: "SQL statement. The optional SQL-prefix filter permits SELECT prefixes only." },
+        params: {
+          type: "array",
+          description: "Values the database binds to $1, $2, ... in `sql`, in order (the first value is $1). Pass values here; never splice them into the SQL text.",
+        },
+      },
+      required: ["sql"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "oc_vector_topk",
+    title: "Find similar vectors",
+    description:
+      "Vector similarity search in the OriginChainDB database. Returns the top-k nearest rows in `table` to the supplied query vector.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table: { type: "string", description: "Table containing the vector column." },
+        vector: {
+          type: "array",
+          items: { type: "number" },
+          description: "Query embedding.",
+        },
+        k: {
+          type: "integer",
+          minimum: 1,
+          description: "Number of neighbours to return. Default 10.",
+        },
+        mode: {
+          type: "string",
+          enum: ["fast", "high_recall"],
+          description:
+            "Search mode. `high_recall` is the default; `fast` trades recall for latency.",
+        },
+      },
+      required: ["table", "vector"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "oc_fts_search",
+    title: "Search indexed text",
+    description:
+      "Full-text search over an indexed string field in `table` in the OriginChainDB database, using the default search mode. Response shape depends on that mode.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table: { type: "string", description: "Table name." },
+        field: { type: "string", description: "Indexed text field." },
+        query: { type: "string", description: "Search terms." },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          description: "Max rows to return. Default 20.",
+        },
+      },
+      required: ["table", "field", "query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "oc_list_schemas",
+    title: "List database schemas",
+    description:
+      "List all schema IDs registered in the OriginChainDB database. Use this for discovery before issuing typed queries.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+] as const;
+
+export function createDatabaseServer(config: Config) {
+  const ocFetch = createHttpClient(config);
+  // POST /sql {sql, params?}; params is sent only when the caller gave it.
+  async function callSql(args: { sql: string; params?: unknown[] }, signal: AbortSignal) {
+    const body = args.params === undefined ? { sql: args.sql } : { sql: args.sql, params: args.params };
+    return ocFetch("POST", `/sql`, body, signal);
+  }
+
+  // A path value of "", "." or ".." would make the URL parser drop or climb a path
+  // segment, so the request would leave OC_URL's path. Everything else is encoded.
+  function requirePathNames(...values: string[]) {
+    if (values.some((v) => v === "" || v === "." || v === "..")) {
+      throw new Error("`table` and `field` must not be empty, `.` or `..`");
+    }
+  }
+
+  // POST /vector/{table}/topk {query, dim, k, mode}
+  // NOTE: the engine's VecTopkReq requires `query` (the embedding) and `dim`
+  // (its length) — not `vector`. The tool's public arg stays `vector` for
+  // intuitiveness; we map it here. Missing/renamed fields → 422.
+  async function callVectorTopk(args: {
+    table: string;
+    vector: number[];
+    k?: number;
+    mode?: "fast" | "high_recall";
+  }, signal: AbortSignal) {
+    const body = {
+      query: args.vector,
+      dim: args.vector.length,
+      k: args.k ?? 10,
+      mode: args.mode ?? "high_recall",
+    };
+    return ocFetch(
+      "POST",
+      `/vector/${encodeURIComponent(args.table)}/topk`,
+      body,
+      signal,
+    );
+  }
+
+  // GET /fts/{table}/{field}?q=…&limit=…
+  async function callFtsSearch(args: {
+    table: string;
+    field: string;
+    query: string;
+    limit?: number;
+  }, signal: AbortSignal) {
+    const limit = args.limit ?? 20;
+    const qs = `?q=${encodeURIComponent(args.query)}&limit=${limit}`;
+    return ocFetch(
+      "GET",
+      `/fts/${encodeURIComponent(args.table)}/${encodeURIComponent(args.field)}${qs}`,
+      undefined,
+      signal,
+    );
+  }
+
+  // GET /schemas — discovery, also backs the originchain://schemas resource.
+  async function callListSchemas(signal: AbortSignal) {
+    return ocFetch("GET", `/schemas`, undefined, signal);
+  }
+
+  const server = new Server(
+    {
+      name: "originchain-mcp",
+      version: pkgVersion,
+    },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+      },
+    },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOLS.map((t) => ({
+      name: t.name,
+      title: t.title,
+      description: t.description,
+      inputSchema: t.inputSchema,
+      annotations: {
+        title: t.title,
+        readOnlyHint: t.name !== "oc_sql",
+        destructiveHint: t.name === "oc_sql",
+        idempotentHint: t.name !== "oc_sql",
+        openWorldHint: false,
+      },
+    })),
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+    const { name, arguments: rawArgs } = req.params;
+    const args = (rawArgs ?? {}) as Record<string, unknown>;
+    try {
+      switch (name) {
+        case "oc_sql": {
+          if (typeof args.sql !== "string") throw new Error("`sql` must be a string");
+          if (args.params !== undefined && !Array.isArray(args.params))
+            throw new Error("`params` must be an array of values for $1, $2, ...");
+          // Optional SQL prefix filter only. This is not a SQL parser or an
+          // authorization boundary, and it does not restrict other tools.
+          if (
+            config.sqlPrefixOnly &&
+            !/^\s*select\b/i.test(args.sql)
+          ) {
+            throw new Error(
+              "OC_MCP_READONLY=true — oc_sql requires a SELECT prefix",
+            );
+          }
+          return asTextResult(await callSql({ sql: args.sql, params: args.params as unknown[] | undefined }, extra.signal));
+        }
+        case "oc_vector_topk": {
+          if (typeof args.table !== "string")
+            throw new Error("`table` must be a string");
+          requirePathNames(args.table);
+          if (!Array.isArray(args.vector) || !args.vector.every((v) => typeof v === "number"))
+            throw new Error("`vector` must be an array of numbers");
+          const k = args.k === undefined ? undefined : Number(args.k);
+          const mode =
+            args.mode === "fast" || args.mode === "high_recall" ? args.mode : undefined;
+          return asTextResult(
+            await callVectorTopk({
+              table: args.table,
+              vector: args.vector as number[],
+              k,
+              mode,
+            }, extra.signal),
+          );
+        }
+        case "oc_fts_search": {
+          if (typeof args.table !== "string") throw new Error("`table` must be a string");
+          if (typeof args.field !== "string") throw new Error("`field` must be a string");
+          if (typeof args.query !== "string") throw new Error("`query` must be a string");
+          requirePathNames(args.table, args.field);
+          const limit = args.limit === undefined ? undefined : Number(args.limit);
+          return asTextResult(
+            await callFtsSearch({
+              table: args.table,
+              field: args.field,
+              query: args.query,
+              limit,
+            }, extra.signal),
+          );
+        }
+        case "oc_list_schemas": {
+          return asTextResult(await callListSchemas(extra.signal));
+        }
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (err) {
+      return asErrorResult(err);
+    }
+  });
+
+  // Resource: originchain://schemas — eager schema dump for context attach.
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [
+      {
+        uri: "originchain://schemas",
+        name: "OriginChain schemas",
+        description:
+          "List of schema IDs registered in this database. Auto-discoverable for context attach.",
+        mimeType: "application/json",
+      },
+    ],
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
+    if (req.params.uri !== "originchain://schemas") {
+      throw new Error(`Unknown resource: ${req.params.uri}`);
+    }
+    const schemas = await callListSchemas(extra.signal);
+    return {
+      contents: [
+        {
+          uri: req.params.uri,
+          mimeType: "application/json",
+          text: JSON.stringify(schemas, null, 2),
+        },
+      ],
+    };
+  });
+  return server;
+}

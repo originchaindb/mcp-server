@@ -121,3 +121,10 @@ function rejectRetiredIdentity(env: NodeJS.ProcessEnv): void {
       'If this database does not support access tokens yet, keep using 0.2.0-rc.1 until it does.');
   }
 }
+
+export function managedDatabase(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 350) return;
+  // Database provisioners own these namespaces. Accept only their tenant routes.
+  const match = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)?\.(?:db|free)\.(?:originchain\.ai|originchaindb\.com))\/v1\/tenants\/([A-Za-z0-9_-]{1,128})\/?$/.exec(value);
+  return match ? value.replace(/\/$/, "") : undefined;
+}

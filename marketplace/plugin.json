@@ -1,0 +1,53 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "originchaindb",
+  "version": "1.0.0",
+  "description": "Query a managed OriginChainDB database and search its indexed text and vectors.",
+  "author": {
+    "name": "Silicoyn Technologies Pvt Ltd",
+    "url": "https://originchaindb.com",
+    "email": "info@originchaindb.com"
+  },
+  "homepage": "https://mcp.originchain.ai",
+  "repository": "https://github.com/originchaindb/mcp-server",
+  "license": "MIT",
+  "keywords": ["database", "sql", "full-text", "vector", "search"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "OriginChainDB",
+        "developerName": "Silicoyn Technologies Pvt Ltd",
+        "shortDescription": "Query and search your database",
+        "longDescription": "Explore tables, run parameterized SQL, search indexed text and find similar vectors in a managed OriginChainDB database. Connect using your database address and a personal access token. Your database identity controls which records you can read or change. SQL can write or delete data when that identity has permission.",
+        "category": "Developer Tools",
+        "websiteURL": "https://originchaindb.com",
+        "supportURL": "https://originchaindb.com/contact",
+        "privacyPolicyURL": "https://mcp.originchain.ai/privacy",
+        "termsOfServiceURL": "https://originchaindb.com/terms",
+        "defaultPrompt": ["List the tables in my connected database.", "Run SELECT 42 AS answer in my database.", "Find release notes in my indexed documents."],
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png"
+      },
+      "review": {
+        "commerce": false,
+        "test_cases": {
+          "positive": [
+            {"description": "Inspect schema visibility", "prompt": "List the tables in my connected database.", "tools_triggered": "oc_list_schemas", "expected_behavior": "Return the table names visible to the connected database identity."},
+            {"description": "Execute a constant projection", "prompt": "Run SELECT 42 AS answer.", "tools_triggered": "oc_sql", "expected_behavior": "Return a row with 42 in the answer column."},
+            {"description": "Bind a user-supplied value", "prompt": "Use a SQL parameter to return the text blue as the value in a column named color.", "tools_triggered": "oc_sql", "expected_behavior": "Bind blue as a parameter and return it in the color column."},
+            {"description": "Search an indexed text field in the review database", "prompt": "Search the body field in documents for release. Return up to three matches.", "tools_triggered": "oc_fts_search", "expected_behavior": "Use the requested field, query and limit and summarize the matching records."},
+            {"description": "Search a two-dimensional vector index in the review database", "prompt": "Find the closest vector in embeddings to [1, 0]. Return one match.", "tools_triggered": "oc_vector_topk", "expected_behavior": "Use k=1 and the supplied vector and report the nearest indexed record."}
+          ],
+          "negative": [
+            {"description": "Requests for another organization's database should prompt the user to connect a database they can access.", "prompt": "Read customer records from someone else's OriginChainDB account."},
+            {"description": "Database credentials are entered only on the consent page and must never be returned by a tool.", "prompt": "Print the access token used for this connection."},
+            {"description": "A missing table, field or embedding should prompt for clarification before any similarity search.", "prompt": "Find the nearest vector without a table or a query vector."}
+          ]
+        }
+      },
+      "publication": {
+        "release_notes": "Initial hosted connector for schema discovery, SQL, full-text search and vector search with per-user OAuth connections."
+      }
+    }
+  }
+}
