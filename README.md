@@ -2,9 +2,18 @@
 
 Connect an MCP host to an OriginChainDB database through four tools: SQL,
 vector search, full-text search, and schema discovery.
-The host starts this Node.js process and communicates over stdin/stdout. The
-process sends HTTPS requests to your database's address with your access token;
-it does not start an HTTP MCP server.
+Claude and ChatGPT can connect to the hosted server at
+`https://mcp.originchain.ai/mcp` using Streamable HTTP and OAuth.
+Add this URL as a custom connector in either client. In the authorization
+page, enter the complete database address from Connect and an active personal
+access token. Use a read-only database identity for research. SQL can modify
+or delete data when the identity has write access.
+
+The hosted service supports managed OriginChainDB instances. See its
+[connection guide](https://mcp.originchain.ai/) and
+[data handling details](https://mcp.originchain.ai/privacy).
+The local Node.js server uses stdio and sends HTTPS requests directly to the
+database. Its installation and configuration instructions follow below.
 
 <!-- connect:begin -->
 <!-- TODO(connect.v1.json): generate this block from the connect contract's "answer" once the contract is published; until then it is copied verbatim. -->
