@@ -188,7 +188,9 @@ test('repository contains no retired connection names or database-client terms',
     'test/retired-names.test.mjs']) {
     assert.ok(scanned.includes(file), `guard did not scan ${file}`);
   }
-  assert.deepEqual(skipped, [], 'the guard cannot read these files, so it cannot vouch for them');
+  assert.deepEqual(skipped, ['marketplace/assets/icon.png'], 'only the directory logo is binary');
+  const icon = await readFile(resolve(ROOT, 'marketplace/assets/icon.png'));
+  assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.deepEqual(violations, []);
 });
 

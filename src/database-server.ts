@@ -42,6 +42,7 @@ function asErrorResult(err: unknown) {
 const TOOLS = [
   {
     name: "oc_sql",
+    title: "Run SQL",
     description:
       "Run a SQL statement against the OriginChainDB database (POST $OC_URL/sql). Put values in `params` and refer to them as $1, $2, ... in `sql`. The access token's database permissions govern what is allowed. Returns the database response as JSON; a SELECT returns {\"kind\":\"select\",\"columns\":[...],\"rows\":[...]}. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
     inputSchema: {
@@ -59,6 +60,7 @@ const TOOLS = [
   },
   {
     name: "oc_vector_topk",
+    title: "Find similar vectors",
     description:
       "Vector similarity search in the OriginChainDB database. Returns the top-k nearest rows in `table` to the supplied query vector.",
     inputSchema: {
@@ -88,6 +90,7 @@ const TOOLS = [
   },
   {
     name: "oc_fts_search",
+    title: "Search indexed text",
     description:
       "Full-text search over an indexed string field in `table` in the OriginChainDB database, using the default search mode. Response shape depends on that mode.",
     inputSchema: {
@@ -108,6 +111,7 @@ const TOOLS = [
   },
   {
     name: "oc_list_schemas",
+    title: "List database schemas",
     description:
       "List all schema IDs registered in the OriginChainDB database. Use this for discovery before issuing typed queries.",
     inputSchema: {
@@ -196,9 +200,11 @@ export function createDatabaseServer(config: Config) {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => ({
       name: t.name,
+      title: t.title,
       description: t.description,
       inputSchema: t.inputSchema,
       annotations: {
+        title: t.title,
         readOnlyHint: t.name !== "oc_sql",
         destructiveHint: t.name === "oc_sql",
         idempotentHint: t.name !== "oc_sql",

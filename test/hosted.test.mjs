@@ -181,7 +181,14 @@ test("authorization, browser binding, PKCE, real MCP tool calls, rotation and re
       ).serverInfo.name,
       "originchain-mcp",
     );
-    assert.equal((await rpc("tools/list")).tools.length, 4);
+    const { tools } = await rpc("tools/list");
+    assert.equal(tools.length, 4);
+    for (const tool of tools) {
+      assert.ok(tool.title);
+      assert.equal(tool.annotations.title, tool.title);
+      assert.equal(tool.annotations.readOnlyHint, tool.name !== "oc_sql");
+      assert.equal(tool.annotations.destructiveHint, tool.name === "oc_sql");
+    }
     for (const [name, args] of [
       ["oc_sql", { sql: "SELECT 42 AS answer" }],
       ["oc_list_schemas", {}],
