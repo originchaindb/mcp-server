@@ -20,8 +20,6 @@ const config = (() => {
     process.exit(1);
   }
 })();
-// Configuration warnings go to stderr once at startup; stdout is reserved for MCP.
-for (const warning of config.warnings) process.stderr.write(`[originchain-mcp] WARNING: ${warning}\n`);
 const ocFetch = createHttpClient(config);
 
 function asTextResult(payload: unknown) {

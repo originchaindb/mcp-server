@@ -81,16 +81,15 @@ originchain-mcp
 
 Set your host's command to `originchain-mcp` and omit `args` for that installation.
 
-The previous [0.2.0-rc.1 release](https://github.com/originchaindb/mcp-server/releases/tag/v0.2.0-rc.1)
-remains unchanged. This development version removes the natural-language query
-tool. Reload your host to refresh its tool list after upgrading.
+Version 0.3.0 removes the natural-language query tool of earlier previews.
+Reload your host to refresh its tool list after upgrading.
 
 ## Connection settings
 
 | Variable | Required | Value |
 | --- | --- | --- |
 | `OC_URL` | Yes | Your database's address, copied from Connect. Use it exactly as shown: the server appends each tool's path, such as `/sql`, and never builds, edits or parses the address. A trailing slash is ignored. |
-| `OC_TOKEN` | Yes | An access token (`oc_pat_...`) from Access tokens, sent unchanged as `Authorization: Bearer <OC_TOKEN>`. On databases where access tokens are not supported yet, use that database's key. |
+| `OC_TOKEN` | Yes | An access token (`oc_pat_...`) from Access tokens, sent unchanged as `Authorization: Bearer <OC_TOKEN>`. |
 | `OC_MCP_TIMEOUT_MS` | No | Deadline in milliseconds for each tool call or resource read, covering the HTTP request, the response-body read and the one resend after a `503` with `Retry-After`. Default `60000`; integer range `1`–`2147483647`. |
 | `OC_ALLOW_INSECURE_HTTP` | No | Exactly `true` permits a non-loopback HTTP address. Otherwise HTTPS is required except for `localhost`, `127.0.0.1` and `[::1]`. |
 | `OC_MCP_READONLY` | No | Exactly `true` enables the limited SQL-prefix filter. It applies only to `oc_sql`; see [Permissions and limitations](#permissions-and-limitations). |
@@ -109,15 +108,13 @@ argument can leave `OC_URL`'s path or select another address. **All redirects
 are refused**, including same-origin redirects; use `OC_URL` exactly as copied
 from Connect. Redirect targets never receive the token from this server.
 
-**Upgrading from 0.2.x and earlier:** the address is now one value, `OC_URL`,
-copied from Connect, in place of the earlier separate host and database-id
-settings. For this release only, the server still reads those earlier settings
-when `OC_URL` is unset and prints a warning on stderr naming the replacement;
-the next minor release drops them. Database-user name and key settings are no
-longer supported: the server refuses to start while either is set, rather than
-send requests with the token's own permissions. Create an access token for that
-database identity and use it as `OC_TOKEN`. If your database does not support
-access tokens yet, keep using 0.2.0-rc.1 until it does.
+**Upgrading from 0.2.x and earlier:** 0.3.0 connects with `OC_URL` and
+`OC_TOKEN` only. The earlier separate host and database-id settings, and the
+database-user name and key settings, are no longer read: the server refuses to
+start while any of them is set, even empty or beside `OC_URL`, and its error
+names the replacement, rather than run on settings it ignores. Set `OC_URL` to
+your database's address from Connect, set `OC_TOKEN` to an access token for your
+database identity, and remove the earlier settings.
 
 **Migrating from 0.1.x:** remote plain HTTP requires the explicit
 `OC_ALLOW_INSECURE_HTTP=true` opt-in, and redirected endpoints must be replaced
@@ -245,8 +242,7 @@ again.
 | Symptom | What to check |
 | --- | --- |
 | Process exits with `FATAL: env var ... is required and missing` | Both `OC_URL` and `OC_TOKEN` must reach the child process; a host may not inherit your terminal environment. |
-| Startup rejects the address, token, a retired setting or the timeout | Copy `OC_URL` from Connect unchanged, use an access token as `OC_TOKEN` and remove database-user settings, and choose a positive integer deadline. Configuration errors do not print secret values. |
-| Startup prints a `WARNING` on stderr | A retired setting is still configured. Follow the warning: set `OC_URL` from Connect and remove the retired settings. |
+| Startup rejects the address, token, a retired setting or the timeout | Copy `OC_URL` from Connect unchanged, use an access token as `OC_TOKEN`, remove the retired setting the error names, and choose a positive integer deadline. Configuration errors do not print secret values. |
 | Tool reports a refused redirect | Use `OC_URL` exactly as copied from Connect; the server will not follow the redirect. |
 | Tool reports a timeout | Check the database and network, then adjust `OC_MCP_TIMEOUT_MS` if appropriate. A submitted write may already have completed. |
 | Host cannot start `npx` | Install Node.js 20+, check the host's executable path, or configure the installed `originchain-mcp` executable. |
@@ -264,8 +260,8 @@ HTTP failures are returned as MCP tool errors with the method, path, status,
 and server response body. Argument errors are also returned with `isError:
 true`. Treat tool outputs as potentially sensitive database content: the
 response body is passed through without redaction. Startup diagnostics go to
-stderr and report the timeout, plus a one-time warning for any retired setting,
-without printing the address or credentials. stdout is reserved for MCP.
+stderr and report the timeout, or why startup was refused, without printing the
+address or credentials. stdout is reserved for MCP.
 
 ## Develop from source
 

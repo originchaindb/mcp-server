@@ -34,16 +34,17 @@ const HEADER_NAMES = ['x-oc-db-user', 'x-oc-db-key', 'x-oc-tenant'];
 // MCP is an application path, so none is allowed anywhere here, exempt files included.
 export const WIRE_TERMS = ['psycopg', 'node-postgres', 'postgresql://', 'PGPASSWORD', ':5432', 'sslmode',
   'postgres://', 'mysql://', 'sqlserver://'];
-// Nothing may depend on the address's shape: only the one-release fallback in
-// src/config.ts builds it, and only tests use today's shape as an opaque fixture.
+// Nothing may depend on the address's shape: nothing builds it, and only tests use
+// today's shape as an opaque fixture. src/config.ts names the retired database-id
+// setting only to refuse it; the exemption control below keeps it to that word.
 const ADDRESS_SHAPE = '/v1/tenants/';
 const mayNameAddressShape = rel => rel === 'src/config.ts' || rel.startsWith('test/');
 
-// Exactly the retired names each file needs: src/config.ts reads or rejects them for
-// one release, and test/retired-names.test.mjs proves that. Any other retired name in
-// those files, or any retired name elsewhere, is a violation.
+// Exactly the retired names each file needs: src/config.ts refuses them at startup,
+// and test/retired-names.test.mjs proves that. Any other retired name in those files,
+// or any retired name elsewhere, is a violation.
 const ALLOWED = {
-  'src/config.ts': ['OC_HOST', 'OC_TENANT', 'OC_DB_USER', 'OC_DB_KEY', '/v1/tenants/$'],
+  'src/config.ts': ['OC_HOST', 'OC_TENANT', 'OC_DB_USER', 'OC_DB_KEY'],
   'test/retired-names.test.mjs': ['OC_HOST', 'OC_TENANT', 'OC_DB_USER', 'OC_DB_KEY',
     'X-OC-DB-User', 'x-oc-db-user', 'X-OC-DB-Key', 'x-oc-db-key', 'X-OC-Tenant', 'x-oc-tenant'],
 };
@@ -155,12 +156,13 @@ test('positive control: UTF-16 files are decoded, and unreadable files are repor
 
 test('positive control: an allowed file is flagged for any retired name outside its own list', async t => {
   const { violations } = await tree(t, {
-    'src/config.ts': 'OC_HOST ORIGINCHAIN_URL oc_live_ X-OC-Tenant psycopg',
+    // src/config.ts no longer builds the retired address, so building it is flagged too.
+    'src/config.ts': 'OC_HOST ORIGINCHAIN_URL oc_live_ X-OC-Tenant psycopg `${origin}/v1/tenants/${id}`',
     'test/retired-names.test.mjs': 'X-OC-DB-User ORIGINCHAIN_PASSWORD',
     'test/other.test.mjs': 'OC_HOST',
   });
   assert.deepEqual(flaggedIn(violations, 'src/config.ts'),
-    { file: 'src/config.ts', never: ['ORIGINCHAIN_URL', 'X-OC-Tenant', 'oc_live_', 'x-oc-tenant'], wire: ['psycopg'], shape: [] });
+    { file: 'src/config.ts', never: ['ORIGINCHAIN_URL', 'X-OC-Tenant', '/v1/tenants/$', 'oc_live_', 'x-oc-tenant'], wire: ['psycopg'], shape: [] });
   assert.deepEqual(flaggedIn(violations, 'test/retired-names.test.mjs').never, ['ORIGINCHAIN_PASSWORD']);
   assert.deepEqual(flaggedIn(violations, 'test/other.test.mjs').never, ['OC_HOST']);
 });
@@ -172,7 +174,7 @@ test('negative control: the application path, near-misses and the exemptions are
       'oc_pat_example oc_host OC-HOST x-oc-probe postgres port 5432 OC_MCP_TIMEOUT_MS a postgresql database',
       'SQL tools such as psql or DBeaver connect through Connect, Database client, with their own login.',
     ].join('\n'),
-    'src/config.ts': 'OC_HOST OC_TENANT OC_DB_USER OC_DB_KEY `${origin}/v1/tenants/${id}` const tenant',
+    'src/config.ts': "['OC_HOST', 'OC_TENANT'] ['OC_DB_USER', 'OC_DB_KEY'] are retired",
     'test/fixture.test.mjs': "const base = '/v1/tenants/01hzfixture'; // today's shape, opaque; no tenant parsing",
   });
   assert.deepEqual(scanned.sort(), ['clean.md', 'src/config.ts', 'test/fixture.test.mjs']);
@@ -199,8 +201,12 @@ test('exemption control: allowed files contain exactly their allowed names and a
   for (const [file, allowed] of Object.entries(ALLOWED)) {
     assert.deepEqual((await scanFile(resolve(ROOT, file))).never.sort(), [...allowed].sort(), file);
   }
+  // src/config.ts may say "tenant" only inside the retired setting name it refuses; it
+  // no longer builds an address, so the address's path must not appear in it.
   const config = await scanFile(resolve(ROOT, 'src/config.ts'));
-  assert.deepEqual(config.shape, ['/v1/tenants/', 'tenant']);
+  assert.deepEqual(config.shape, ['tenant']);
+  const configText = await readFile(resolve(ROOT, 'src/config.ts'), 'utf8');
+  assert.equal(configText.toLowerCase().split('tenant').length - 1, configText.split('OC_TENANT').length - 1);
   const { violations } = await guard(ROOT);
   assert.ok(!violations.some(v => v.file in ALLOWED));
 });

@@ -125,7 +125,7 @@ for (const [label, path, expected] of [
 for (const [label, settings, expected] of [
   ['missing address', { OC_URL: undefined }, /OC_URL is required and missing/],
   ['empty address', { OC_URL: '' }, /OC_URL is required and missing/],
-  ['missing token', { OC_TOKEN: undefined }, /OC_TOKEN is required and missing; set it to an access token from Access tokens, or the database's key where access tokens are not supported yet/],
+  ['missing token', { OC_TOKEN: undefined }, /OC_TOKEN is required and missing; set it to an access token from Access tokens\n/],
   ['invalid bearer', { OC_TOKEN: 'secret token' }, /OC_TOKEN/],
   ['URL userinfo', { OC_URL: 'https://secret-user:secret-key@example.com/v1' }, /without credentials/],
   ['empty URL userinfo', { OC_URL: 'https://@example.com/v1' }, /without credentials/],
