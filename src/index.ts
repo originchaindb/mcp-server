@@ -11,7 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { readConfig } from './config.js';
-import { createHttpClient } from './http.js';
+import { createHttpClient, isReadOnlySql } from './http.js';
 
 const config = (() => {
   try { return readConfig(process.env); }
@@ -52,7 +52,7 @@ const TOOLS = [
   {
     name: "oc_sql",
     description:
-      "Run a SQL statement against the OriginChainDB database (POST $OC_URL/sql). Put values in `params` and refer to them as $1, $2, ... in `sql`. The access token's database permissions govern what is allowed. Returns the database response as JSON; a SELECT returns {\"kind\":\"select\",\"columns\":[...],\"rows\":[...]}. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
+      "Run a SQL statement against the OriginChainDB database (POST $OC_URL/sql). Put values in `params` and refer to them as $1, $2, ... in `sql`. The access token's database permissions govern what is allowed. Returns the database response as JSON; a SELECT returns {\"kind\":\"select\",\"columns\":[...],\"rows\":[...]}. Only a single plain SELECT is resent, once, after a 503 with Retry-After; any other statement is never resent. OC_MCP_READONLY=true applies a SELECT-prefix filter to this tool only; it is not a database authorization boundary.",
     inputSchema: {
       type: "object",
       properties: {
@@ -131,10 +131,11 @@ const TOOLS = [
 // Tool implementations (one short comment each)
 // ---------------------------------------------------------------------------
 
-// POST /sql {sql, params?}; params is sent only when the caller gave it.
+// POST /sql {sql, params?}; params is sent only when the caller gave it. Only a
+// statement that isReadOnlySql accepts may be resent; anything else may write.
 async function callSql(args: { sql: string; params?: unknown[] }, signal: AbortSignal) {
   const body = args.params === undefined ? { sql: args.sql } : { sql: args.sql, params: args.params };
-  return ocFetch("POST", `/sql`, body, signal);
+  return ocFetch("POST", `/sql`, isReadOnlySql(args.sql) ? "read" : "may-write", body, signal);
 }
 
 // A path value of "", "." or ".." would make the URL parser drop or climb a path
@@ -161,9 +162,11 @@ async function callVectorTopk(args: {
     k: args.k ?? 10,
     mode: args.mode ?? "high_recall",
   };
+  // A nearest-neighbour search only reads.
   return ocFetch(
     "POST",
     `/vector/${encodeURIComponent(args.table)}/topk`,
+    "read",
     body,
     signal,
   );
@@ -181,6 +184,7 @@ async function callFtsSearch(args: {
   return ocFetch(
     "GET",
     `/fts/${encodeURIComponent(args.table)}/${encodeURIComponent(args.field)}${qs}`,
+    "read",
     undefined,
     signal,
   );
@@ -188,7 +192,7 @@ async function callFtsSearch(args: {
 
 // GET /schemas — discovery, also backs the originchain://schemas resource.
 async function callListSchemas(signal: AbortSignal) {
-  return ocFetch("GET", `/schemas`, undefined, signal);
+  return ocFetch("GET", `/schemas`, "read", undefined, signal);
 }
 
 // ---------------------------------------------------------------------------

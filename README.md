@@ -90,7 +90,7 @@ Reload your host to refresh its tool list after upgrading.
 | --- | --- | --- |
 | `OC_URL` | Yes | Your database's address, copied from Connect. Use it exactly as shown: the server appends each tool's path, such as `/sql`, and never builds, edits or parses the address. A trailing slash is ignored. |
 | `OC_TOKEN` | Yes | An access token (`oc_pat_...`) from Access tokens, sent unchanged as `Authorization: Bearer <OC_TOKEN>`. |
-| `OC_MCP_TIMEOUT_MS` | No | Deadline in milliseconds for each tool call or resource read, covering the HTTP request, the response-body read and the one resend after a `503` with `Retry-After`. Default `60000`; integer range `1`–`2147483647`. |
+| `OC_MCP_TIMEOUT_MS` | No | Deadline in milliseconds for each tool call or resource read, covering the HTTP request, the response-body read and, for a read, the one resend after a `503` with `Retry-After`. Default `60000`; integer range `1`–`2147483647`. |
 | `OC_ALLOW_INSECURE_HTTP` | No | Exactly `true` permits a non-loopback HTTP address. Otherwise HTTPS is required except for `localhost`, `127.0.0.1` and `[::1]`. |
 | `OC_MCP_READONLY` | No | Exactly `true` enables the limited SQL-prefix filter. It applies only to `oc_sql`; see [Permissions and limitations](#permissions-and-limitations). |
 
@@ -218,9 +218,10 @@ Use database permissions for read-only access, not this compatibility flag.
 ## Deadlines and cancellation
 
 Each tool call or resource read has one deadline, covering connection setup,
-the full response-body read and, after a `503` with `Retry-After`, the wait and
-the one resend. A deadline failure returns a tool error identifying the
-configured timeout; a schema-resource read returns a protocol error.
+the full response-body read and, when a read is resent after a `503` with
+`Retry-After`, the wait and the resend. A deadline failure returns a tool error
+identifying the configured timeout; a schema-resource read returns a protocol
+error.
 
 When the MCP host cancels a pending tool or resource request, its cancellation
 signal aborts the corresponding HTTP fetch and body read. Other requests keep
@@ -230,12 +231,19 @@ the HTTP request; its configured deadline still applies.
 
 **Timeout or cancellation does not prove a submitted database operation was
 rolled back.** The engine may already have executed it. The only automatic
-retry is one resend after HTTP 503 with a `Retry-After` in whole seconds, which
-the database returns when it has not carried out the request; it is sent only
-if the wait fits inside the deadline. Timeouts, cancellations, a 503 without
-`Retry-After` and every other error are never retried, including for SQL
-writes. Inspect the operation's outcome before deciding whether to submit it
-again.
+retry is one resend of a **read** after HTTP 503 with a `Retry-After` in whole
+seconds, sent only if the wait fits inside the deadline. A read is
+`oc_list_schemas`, `oc_vector_topk`, `oc_fts_search`, the schema resource, and
+an `oc_sql` statement that is a single plain `SELECT`. The database can return
+the same 503 for a write that it has already applied, so an `oc_sql` statement
+is never resent unless it starts with `SELECT`, is the only statement, has no
+comment, quoted identifier or dollar quote, does not contain the words `INTO`,
+`FOR`, `WITH`, `INSERT`, `UPDATE`, `DELETE` or `MERGE` (even inside a string),
+and calls no function outside a short list of built-in read-only functions.
+A 503 whose body says the request was applied (`"applied_locally": true`) is
+never resent. Timeouts, cancellations, a 503 without `Retry-After` and every
+other error are never retried. Inspect the operation's outcome before deciding
+whether to submit it again.
 
 ## Errors and troubleshooting
 
@@ -252,7 +260,7 @@ again.
 | Tool returns HTTP 403 | `OC_URL` was changed, or a read-only token tried to write. |
 | Tool returns HTTP 404 | Wrong path: use `OC_URL` exactly as copied from Connect. |
 | Tool returns HTTP 429 | Too many requests; wait before sending more. This server does not retry it. |
-| Tool returns HTTP 503 | The database is waking up or briefly busy. When the response carries `Retry-After` in seconds and the wait fits inside `OC_MCP_TIMEOUT_MS`, this server waits and sends the request once more; if that also fails, retry after the number of seconds in `Retry-After`. |
+| Tool returns HTTP 503 | The database is waking up or briefly busy, or could not confirm a write. For a read whose response carries `Retry-After` in seconds, when the wait fits inside `OC_MCP_TIMEOUT_MS`, this server waits and sends the request once more. A write is never resent: check whether it was applied before you submit it again. |
 | Search or a table-specific query fails | Check server feature availability, indexes, dimensions, and the returned error body. |
 | An ordinary `SELECT` is rejected before an HTTP request | Check the package version: npm 0.1.2 has the filter defect described above; the GitHub preview fixes it. |
 
@@ -281,10 +289,11 @@ argument handling, HTTP mapping, and stdio setup are in
 [`src/http.ts`](src/http.ts). `npm run build` type-checks and compiles the
 source. `npm test` also exercises the compiled stdio server against a local
 HTTP fixture, including SELECT prefixes, timeout and cancellation disconnects,
-address handling, retired settings, redirect refusal, credential isolation,
-bound parameters, the one resend after a `503` with `Retry-After`, and the
-SQL-only scope of the flag. `test/access-terms.test.mjs` fails if a retired
-connection name, a database-client term or the address's path appears in the
+address handling, refusal of retired settings, redirect refusal, credential
+isolation, bound parameters, the one resend of a read after a `503` with
+`Retry-After` and no resend of a write, and the SQL-only scope of the flag.
+`test/access-terms.test.mjs` fails if a retired connection name, a
+database-client term or the address's path appears in the
 documentation, the examples or the tool descriptions. CI repeats these checks
 against the packed executable.
 

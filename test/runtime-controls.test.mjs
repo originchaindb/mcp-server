@@ -265,8 +265,10 @@ test('HTTP 503 without Retry-After preserves the tool error and never resends a 
   assert.equal(http.requests.length, 1);
 });
 
-// A 503 with Retry-After in seconds means the database did not carry out the request
-// (it is waking up or briefly busy), so it is sent once more after that wait.
+// A 503 with Retry-After in seconds is sent once more after that wait, and only for a
+// read. The database also answers a write that way after the write was applied (a
+// cross-shard transaction whose outcome is pending, or a write not yet acknowledged by
+// enough replicas), so a write, or a statement that may write, is never resent.
 const answerWith = steps => (request, res) => {
   const [status, headers = {}] = steps[Math.min(request.index, steps.length - 1)];
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
@@ -277,10 +279,10 @@ const indexed = handler => {
   return (request, res) => { request.index = next++; request.at = Date.now(); handler(request, res); };
 };
 
-test('HTTP 503 with Retry-After is sent once more after that wait, unchanged', { timeout }, async t => {
+test('a read that gets HTTP 503 with Retry-After is sent once more after that wait, unchanged', { timeout }, async t => {
   const http = await fixture(t, indexed(answerWith([[503, { 'retry-after': '1' }], [200]])));
   const { client } = await connect(t, http.url);
-  const args = { sql: 'INSERT INTO a VALUES ($1)', params: [1] };
+  const args = { sql: 'SELECT v FROM a WHERE id = $1', params: [1] };
   const result = await client.callTool({ name: 'oc_sql', arguments: args });
   assert.notEqual(result.isError, true, result.content[0].text);
   assert.deepEqual(JSON.parse(result.content[0].text).rows, [{ v: '1' }]);
@@ -292,6 +294,67 @@ test('HTTP 503 with Retry-After is sent once more after that wait, unchanged', {
   }
   assert.ok(http.requests[1].at - http.requests[0].at >= 900, 'the resend waits for Retry-After');
 });
+
+// Statements that write, or that this server cannot tell from a write. None is resent.
+const MAY_WRITE = [
+  'INSERT INTO a VALUES ($1)', 'UPDATE a SET v = $1', 'DELETE FROM a WHERE id = $1',
+  'MERGE INTO a USING b ON a.id = b.id WHEN MATCHED THEN DELETE', 'WITH d AS (DELETE FROM a RETURNING *) SELECT * FROM d',
+  'CREATE TABLE a_copy (v int)', 'CALL refresh_a()', 'SELECT nextval($1)', 'SELECT * INTO a_copy FROM a',
+  'SELECT 1; DELETE FROM a', '/* note */ SELECT 1', 'SELECT 1 -- note', 'SELECT "f"(1)', 'SELECT v FROM a FOR UPDATE',
+  'SELECT other.count(v) FROM a', 'SELECT $$x$$', 'SELECT * FROM writes_rows($1)', "SELECT v FROM a WHERE note = 'f(x)'",
+];
+// Plain single SELECTs: resent once.
+const READS = ['SELECT 42', 'select count(*) from a where id = $1;',
+  'SELECT v FROM a WHERE id IN (SELECT id FROM b) ORDER BY lower(v) LIMIT 5'];
+
+test('a write, or a statement that may write, is never resent after HTTP 503 with Retry-After; a read is resent once', { timeout }, async t => {
+  // The first request with each body gets 503 + Retry-After: 0; a repeat of it gets 200.
+  const seen = new Set();
+  const http = await fixture(t, (request, res) => {
+    const key = JSON.stringify(request.body);
+    const first = !seen.has(key);
+    seen.add(key);
+    res.writeHead(first ? 503 : 200, { 'content-type': 'application/json', ...(first ? { 'retry-after': '0' } : {}) });
+    res.end(first ? '{"error":"warming"}' : '{"kind":"select","columns":[],"rows":[]}');
+  });
+  const { client } = await connect(t, http.url);
+  const sent = sql => http.requests.filter(r => r.body?.sql === sql).length;
+  // Positive control: the same fixture and server do resend a read, so a count of one
+  // below is a refusal to resend, not a fixture that cannot observe a resend.
+  for (const sql of READS) {
+    const result = await client.callTool({ name: 'oc_sql', arguments: { sql, params: [1] } });
+    assert.notEqual(result.isError, true, sql);
+    assert.equal(sent(sql), 2, `a read is resent once: ${sql}`);
+  }
+  for (const sql of MAY_WRITE) {
+    const result = await client.callTool({ name: 'oc_sql', arguments: { sql, params: [1] } });
+    assert.equal(result.isError, true, sql);
+    assert.match(result.content[0].text, /503: \{"error":"warming"\}/);
+    assert.equal(sent(sql), 1, `never resent: ${sql}`);
+  }
+  assert.equal(http.requests.length, READS.length * 2 + MAY_WRITE.length);
+});
+
+for (const [applied, attempts] of [[true, 1], [false, 2]]) {
+  test(`a read whose 503 body says applied_locally: ${applied} is sent ${attempts === 1 ? 'only once' : 'once more'}`, { timeout }, async t => {
+    // The database sends this body when a request was applied but not acknowledged by
+    // enough replicas. The `false` case is the control: the same 503 is otherwise resent.
+    const body = JSON.stringify({ error: 'replication_not_acknowledged', applied_locally: applied, retryable: true });
+    const http = await fixture(t, indexed((request, res) => {
+      if (request.index > 0) return answerWith([[200]])(request, res);
+      res.writeHead(503, { 'content-type': 'application/json', 'retry-after': '0' }).end(body);
+    }));
+    const { client } = await connect(t, http.url);
+    const result = await client.callTool(sql);
+    assert.equal(http.requests.length, attempts);
+    if (applied) {
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /503: .*"applied_locally":true/);
+    } else {
+      assert.notEqual(result.isError, true, result.content[0].text);
+    }
+  });
+}
 
 test('a second 503 with Retry-After is returned, not retried again', { timeout }, async t => {
   const http = await fixture(t, indexed(answerWith([[503, { 'retry-after': '0' }]])));
@@ -311,7 +374,8 @@ for (const [label, status, headers] of [
     const http = await fixture(t, indexed(answerWith([[status, headers], [200]])));
     const { client } = await connect(t, http.url, { OC_MCP_TIMEOUT_MS: '10000' });
     const started = Date.now();
-    const result = await client.callTool({ name: 'oc_sql', arguments: { sql: 'DELETE FROM fixture_only' } });
+    // A read, so only the header rule under test can stop the resend.
+    const result = await client.callTool(sql);
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, new RegExp(`${status}`));
     assert.equal(http.requests.length, 1);
