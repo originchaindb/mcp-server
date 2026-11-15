@@ -46,7 +46,7 @@ async function connect(t, readOnly) {
   } catch (error) {
     throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
   }
-  assert.equal(client.getServerVersion().version, '0.3.0-rc.1');
+  assert.equal(client.getServerVersion().version, '0.3.0');
   return { client, requests };
 }
 

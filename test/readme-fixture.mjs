@@ -11,7 +11,7 @@ const readme = await readFile(readmePath, 'utf8');
 const examples = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
 const config = examples[0].mcpServers.originchaindb;
 assert.equal(config.command, 'npx');
-assert.deepEqual(config.args, ['--yes', '--package', '/absolute/path/originchain-mcp-server-0.3.0-rc.1.tgz', 'originchain-mcp']);
+assert.deepEqual(config.args, ['--yes', '--package', '/absolute/path/originchain-mcp-server-0.3.0.tgz', 'originchain-mcp']);
 // The README shows exactly the two application values.
 assert.deepEqual(Object.keys(config.env), ['OC_URL', 'OC_TOKEN']);
 const cases = [];
@@ -81,7 +81,7 @@ function start(overrides = {}) {
 function ok(name) { cases.push({ name, passed: true }); }
 async function initialize(client) {
   const reply = await client.request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'readme-fixture', version: '1.0.0' } });
-  assert.equal(reply.serverInfo.name, 'originchain-mcp'); assert.equal(reply.serverInfo.version, '0.3.0-rc.1');
+  assert.equal(reply.serverInfo.name, 'originchain-mcp'); assert.equal(reply.serverInfo.version, '0.3.0');
   client.notify('notifications/initialized');
 }
 function checkLast(path, method, body) {
@@ -136,7 +136,7 @@ try {
   const missing = start({OC_TOKEN:undefined});
   const exitCode = await new Promise((resolve,reject) => { const t=setTimeout(()=>{missing.child.kill();reject(new Error('missing token did not exit'));},30000); missing.child.once('exit',code=>{clearTimeout(t);resolve(code);}); });
   assert.equal(exitCode,1); assert.match(missing.stderr(),/OC_TOKEN is required and missing/); ok('missing required environment fails at startup');
-  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.3.0-rc.1',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live database or credentials'},null,2)+'\n');
+  await writeFile(outputPath, JSON.stringify({variant,node:process.version,readme_sha256:createHash('sha256').update(readme).digest('hex'),package_version:'0.3.0',cases,all_passed:true,http_requests:requests.length,scope:'Local HTTP fixture; no live database or credentials'},null,2)+'\n');
   console.log(JSON.stringify({variant,node:process.version,passed:cases.length}));
 } finally {
   if(client) await client.close();
