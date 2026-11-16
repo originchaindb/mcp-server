@@ -255,11 +255,14 @@ test('advertised tool and resource descriptions show only the application path',
   const { tools } = await client.listTools();
   const { resources } = await client.listResources();
   const texts = [
-    ...tools.flatMap(tool => [tool.description, ...Object.values(tool.inputSchema.properties ?? {}).map(p => p.description)]),
+    ...tools.flatMap(tool => [tool.title, tool.annotations?.title, tool.description,
+      ...Object.values(tool.inputSchema.properties ?? {}).map(p => p.description),
+      ...Object.values(tool.outputSchema?.properties ?? {}).map(p => p.description)]),
     ...resources.flatMap(resource => [resource.name, resource.description]),
   ].filter(Boolean);
-  assert.equal(tools.length, 4);
-  assert.ok(texts.length >= 4 + resources.length, 'descriptions were collected');
+  assert.equal(tools.length, 5);
+  assert.ok(texts.length >= 5 * 3 + resources.length, 'titles and descriptions were collected');
+  assert.ok(texts.some(text => text.includes('$OC_URL/cypher')), 'the graph tool names its application path');
   assert.ok(texts.some(text => text.includes('$OC_URL/sql')), 'the SQL tool names its application path');
   for (const text of texts) assert.deepEqual(descriptionProblems(text), [], text);
 });

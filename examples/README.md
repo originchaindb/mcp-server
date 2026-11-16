@@ -26,6 +26,6 @@ node examples/client.mjs vector
 | `fts` | `OC_TABLE`, `OC_FTS_FIELD`, `OC_QUERY` | Search a pre-existing indexed text field |
 | `vector` | `OC_TABLE`, `OC_QUERY_VECTOR` | Search a pre-existing vector index; JSON vector must match its dimension and embedding model |
 
-For a prepared two-dimensional fixture, `OC_QUERY_VECTOR` can be `[1,0]`. It is not a text embedding. The examples read existing data and create no schemas or rows. There is no dedicated graph MCP tool; applications send graph queries over HTTPS to `$OC_URL/cypher` with the same token.
+For a prepared two-dimensional fixture, `OC_QUERY_VECTOR` can be `[1,0]`. It is not a text embedding. The examples read existing data and create no schemas or rows. This client does not call the read-only graph tool, `oc_cypher`; the [main README](../README.md#tools-and-inputs) shows its arguments.
 
 By default the example starts `dist/index.js` from this checkout. To test a downloaded npm archive, set `MCP_SERVER_PACKAGE` to its absolute `.tgz` path; the client starts that exact archive with `npx`. The source CI exercises both paths. The loopback acceptance verifies MCP and HTTP contracts, not live database behaviour.

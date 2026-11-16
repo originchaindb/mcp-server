@@ -19,6 +19,7 @@ const calls = [
   { name: 'SQL', run: (client, options) => client.callTool(sql, undefined, options) },
   { name: 'vector', run: (client, options) => client.callTool({ name: 'oc_vector_topk', arguments: { table: 'fixture', vector: [1, 2] } }, undefined, options) },
   { name: 'FTS', run: (client, options) => client.callTool({ name: 'oc_fts_search', arguments: { table: 'fixture', field: 'body', query: 'fixture' } }, undefined, options) },
+  { name: 'graph', run: (client, options) => client.callTool({ name: 'oc_cypher', arguments: { cypher: 'MATCH (n:fixture) RETURN n' } }, undefined, options) },
   { name: 'schemas tool', run: (client, options) => client.callTool({ name: 'oc_list_schemas', arguments: {} }, undefined, options) },
   { name: 'schemas resource', run: (client, options) => client.readResource({ uri: 'originchain://schemas' }, options) },
 ];
@@ -79,7 +80,7 @@ async function connect(t, url, overrides = {}, expectFailure = false) {
   return { client, diagnostics: () => diagnostics };
 }
 
-test('OC_URL and OC_TOKEN alone reach all four tools and the schema resource', { timeout }, async t => {
+test('OC_URL and OC_TOKEN alone reach all five tools and the schema resource', { timeout }, async t => {
   const http = await fixture(t);
   // Positive control: the fixture records an extra identity header when one is sent,
   // so the absence check below can fail.
@@ -88,10 +89,10 @@ test('OC_URL and OC_TOKEN alone reach all four tools and the schema resource', {
   http.requests.length = 0;
   const { client, diagnostics } = await connect(t, http.url);
   for (const call of calls) await call.run(client);
-  assert.equal(http.requests.length, 5);
+  assert.equal(http.requests.length, 6);
   assert.deepEqual(http.requests.map(r => r.url), [
     `${ADDRESS_PATH}/sql`, `${ADDRESS_PATH}/vector/fixture/topk`, `${ADDRESS_PATH}/fts/fixture/body?q=fixture&limit=20`,
-    `${ADDRESS_PATH}/schemas`, `${ADDRESS_PATH}/schemas`,
+    `${ADDRESS_PATH}/cypher`, `${ADDRESS_PATH}/schemas`, `${ADDRESS_PATH}/schemas`,
   ]);
   for (const request of http.requests) {
     assert.equal(request.headers.authorization, 'Bearer fixture-token');
@@ -158,13 +159,13 @@ for (const [label, settings, expected] of [
 
 test('explicit insecure HTTP opt-in permits startup for a remote address without connecting', { timeout }, async t => {
   const { client } = await connect(t, 'http://example.com/v1', { OC_ALLOW_INSECURE_HTTP: 'true' });
-  assert.equal((await client.listTools()).tools.length, 4);
+  assert.equal((await client.listTools()).tools.length, 5);
 });
 
 for (const url of ['http://localhost:8123/v1/', 'http://[::1]:8123/v1']) {
   test(`loopback address ${url} permits startup without an insecure opt-in`, { timeout }, async t => {
     const { client } = await connect(t, url);
-    assert.equal((await client.listTools()).tools.length, 4);
+    assert.equal((await client.listTools()).tools.length, 5);
   });
 }
 

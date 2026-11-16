@@ -11,6 +11,17 @@ import type { Config } from './config.js';
 export type Effect = 'read' | 'may-write';
 
 /**
+ * An HTTP error status from the database. The message is the one tools show; the
+ * status and parsed body let a tool recognise a specific refusal.
+ */
+export class HttpStatusError extends Error {
+  constructor(message: string, readonly status: number, readonly body: unknown) {
+    super(message);
+    this.name = 'HttpStatusError';
+  }
+}
+
+/**
  * `Retry-After` as a whole number of seconds, in milliseconds; anything else
  * (absent, an HTTP date, a fraction) is not a retry instruction here.
  */
@@ -135,7 +146,7 @@ export function createHttpClient(config: Config) {
       if (!res.ok) {
         const detail = typeof parsed === 'object' && parsed !== null
           ? JSON.stringify(parsed) : String(parsed ?? res.statusText);
-        throw new Error(`${operation} → ${res.status}: ${detail}`);
+        throw new HttpStatusError(`${operation} → ${res.status}: ${detail}`, res.status, parsed);
       }
       return parsed;
     } catch (error) {

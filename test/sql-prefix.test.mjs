@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -9,6 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 // never connects to a database, and its bearer token is deliberately synthetic.
 // OC_URL is opaque, so this file uses an arbitrary path prefix rather than today's shape.
 const ADDRESS_PATH = '/db/sql-prefix-fixture';
+const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url))).version;
 async function connect(t, readOnly) {
   const requests = [];
   const fixture = createServer(async (req, res) => {
@@ -46,12 +48,12 @@ async function connect(t, readOnly) {
   } catch (error) {
     throw new Error(`MCP startup failed: ${diagnostics}`, { cause: error });
   }
-  assert.equal(client.getServerVersion().version, '0.3.0');
+  assert.equal(client.getServerVersion().version, version);
   return { client, requests };
 }
 
-for (const sql of ['SELECT 42 AS value', ' \n\tselect 42 AS value', 'SeLeCt(42) AS value']) {
-  test(`SELECT-prefix filter forwards ${JSON.stringify(sql)}`, { timeout: 60000 }, async t => {
+for (const sql of ['SELECT 42 AS value', ' \n\tselect 42 AS value', 'SeLeCt 42 AS value;']) {
+  test(`read-only mode forwards ${JSON.stringify(sql)}`, { timeout: 60000 }, async t => {
     const { client, requests } = await connect(t, true);
     const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
     assert.notEqual(result.isError, true);
@@ -61,7 +63,7 @@ for (const sql of ['SELECT 42 AS value', ' \n\tselect 42 AS value', 'SeLeCt(42) 
 }
 
 for (const sql of ['DELETE FROM fixture_only', 'SELECTED 42', '', 'WITH c AS (SELECT 1) SELECT * FROM c']) {
-  test(`SELECT-prefix filter rejects ${JSON.stringify(sql)} before HTTP`, { timeout: 60000 }, async t => {
+  test(`read-only mode rejects ${JSON.stringify(sql)} before HTTP`, { timeout: 60000 }, async t => {
     const { client, requests } = await connect(t, true);
     const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
     assert.equal(result.isError, true);
@@ -82,7 +84,7 @@ test('advertised tool set excludes the removed service and rejects it before HTT
   const { client, requests } = await connect(t, true);
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map(tool => tool.name).sort(), [
-    'oc_fts_search', 'oc_list_schemas', 'oc_sql', 'oc_vector_topk',
+    'oc_cypher', 'oc_fts_search', 'oc_list_schemas', 'oc_sql', 'oc_vector_topk',
   ]);
   const result = await client.callTool({ name: 'oc_ask', arguments: { nl: 'fixture query' } });
   assert.equal(result.isError, true);
@@ -90,10 +92,33 @@ test('advertised tool set excludes the removed service and rejects it before HTT
   assert.deepEqual(requests, []);
 });
 
-test('prefix filtering is not a SQL parser or read-only authorization boundary', { timeout: 60000 }, async t => {
+// OC_MCP_READONLY=true makes oc_sql read-only, as its annotations say: a statement that
+// starts with SELECT but may still write is refused, not forwarded. Until 0.4.0 the
+// setting checked only the SELECT prefix and forwarded every one of these.
+for (const sql of [
+  'SELECT 1; DELETE FROM fixture_only', 'SELECT * INTO fixture_copy FROM fixture_only', 'SELECT nextval($1)',
+  'SELECT v FROM fixture_only FOR UPDATE', 'SELECT writes_rows()', 'SELECT other.count(v) FROM fixture_only',
+  '/* note */ SELECT 1', 'SELECT 1 -- note', 'SELECT "f"(1)', 'SELECT $$x$$', "SELECT v FROM a WHERE note = 'delete'",
+  'SeLeCt(42) AS value',
+]) {
+  test(`read-only mode refuses ${JSON.stringify(sql)}, which may write, before HTTP`, { timeout: 60000 }, async t => {
+    const { client, requests } = await connect(t, true);
+    const result = await client.callTool({ name: 'oc_sql', arguments: { sql, params: [1] } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /OC_MCP_READONLY=true: oc_sql is read-only and forwards only a single plain SELECT/);
+    assert.match(result.content[0].text, /put values in `params`/);
+    assert.deepEqual(requests, []);
+  });
+}
+
+test('read-only mode refuses a write word in the text and forwards the same read with the value in params', { timeout: 60000 }, async t => {
+  // Control for the refusals above: the value refused inside the text passes as a parameter.
   const { client, requests } = await connect(t, true);
-  const sql = 'SELECT 1; DELETE FROM fixture_only';
-  const result = await client.callTool({ name: 'oc_sql', arguments: { sql } });
-  assert.notEqual(result.isError, true);
-  assert.deepEqual(requests, [{ method: 'POST', path: `${ADDRESS_PATH}/sql`, body: { sql } }]);
+  const refused = await client.callTool({ name: 'oc_sql', arguments: { sql: "SELECT v FROM a WHERE note = 'delete'" } });
+  assert.equal(refused.isError, true);
+  assert.deepEqual(requests, []);
+  const args = { sql: 'SELECT v FROM a WHERE note = $1 AND id IN (SELECT id FROM b) ORDER BY lower(v) LIMIT 5', params: ['delete'] };
+  const result = await client.callTool({ name: 'oc_sql', arguments: args });
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.deepEqual(requests, [{ method: 'POST', path: `${ADDRESS_PATH}/sql`, body: args }]);
 });
