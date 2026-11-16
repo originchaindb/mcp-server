@@ -6,7 +6,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const operation = process.argv[2];
 if (!operation || operation === '--help') {
   console.log('Usage: node examples/client.mjs sql|schemas|fts|vector');
-  console.log('Connection: OC_HOST, OC_TENANT, OC_TOKEN. See examples/README.md for fixtures.');
+  console.log('Connection: OC_URL (your database\'s address, from Connect) and OC_TOKEN (an access token). See examples/README.md for fixtures.');
   process.exit(0);
 }
 function required(name) {
@@ -14,7 +14,7 @@ function required(name) {
   if (!value) throw new Error(`Set ${name}`);
   return value;
 }
-for (const name of ['OC_HOST', 'OC_TENANT', 'OC_TOKEN']) required(name);
+for (const name of ['OC_URL', 'OC_TOKEN']) required(name);
 let name, args;
 switch (operation) {
   case 'sql': name = 'oc_sql'; args = { sql: 'SELECT 1 AS value' }; break;
