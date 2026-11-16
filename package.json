@@ -1,5 +1,5 @@
 {
-  "name": "@originchain/mcp-server",
+  "name": "@originchain-db/mcp-server",
   "version": "0.3.0",
   "description": "Model Context Protocol (MCP) server for OriginChain \u2014 exposes SQL, vector, full-text, and schema tools to Claude Desktop, Cursor, and any MCP-aware AI IDE.",
   "license": "MIT",

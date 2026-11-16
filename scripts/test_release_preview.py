@@ -13,7 +13,7 @@ from unittest.mock import patch
 from publish_npm import check_existing, publish_command
 from release_preview import validate, verify_acceptance, verify_archive, verify_source, write
 
-PACKAGE = {'name': '@originchain/mcp-server', 'version': '0.3.0-rc.1',
+PACKAGE = {'name': '@originchain-db/mcp-server', 'version': '0.3.0-rc.1',
            'repository': {'url': 'git+https://github.com/originchaindb/mcp-server.git'}}
 HEAD = 'a' * 40
 WORKFLOW = 'b' * 40
@@ -190,7 +190,7 @@ class PublicationTests(unittest.TestCase):
     @patch('publish_npm.urlopen')
     def test_identical_version_can_resume_but_different_bytes_cannot(self, opened):
         opened.return_value.__enter__.return_value.read.return_value = b'public archive'
-        metadata = dict(PACKAGE, dist={'tarball': 'https://registry.npmjs.org/@originchain/mcp-server/-/archive.tgz'})
+        metadata = dict(PACKAGE, dist={'tarball': 'https://registry.npmjs.org/@originchain-db/mcp-server/-/archive.tgz'})
         digest = hashlib.sha256(b'public archive').hexdigest()
         self.assertTrue(check_existing(metadata, digest, PACKAGE['version']))
         with self.assertRaises(ValueError):

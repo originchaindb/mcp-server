@@ -10,7 +10,7 @@ import tarfile
 from urllib.request import Request, urlopen
 
 REPOSITORY = 'originchaindb/mcp-server'
-PACKAGE = '@originchain/mcp-server'
+PACKAGE = '@originchain-db/mcp-server'
 
 
 def load(path):
@@ -32,7 +32,7 @@ def validate(version, package, ref, repository, allow_review=False):
     if package.get('repository', {}).get('url') != 'git+https://github.com/' + REPOSITORY + '.git':
         raise ValueError('Repository metadata must match the trusted publisher')
     return {'version': version, 'tag': 'v' + version, 'dist_tag': 'next',
-            'archive': 'originchain-mcp-server-' + version + '.tgz'}
+            'archive': 'originchain-db-mcp-server-' + version + '.tgz'}
 
 
 def verify_archive(directory, package):
