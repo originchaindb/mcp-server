@@ -3,7 +3,8 @@ export interface Config {
   url: string;
   token: string;
   timeoutMs: number;
-  sqlPrefixOnly: boolean;
+  /** OC_MCP_READONLY=true: oc_sql forwards only a statement `isReadOnlySql` accepts. */
+  sqlReadOnly: boolean;
 }
 
 const REPLACEMENT = "set OC_URL to your database's address from Connect";
@@ -27,7 +28,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
   if (!/^[1-9]\d*$/.test(rawTimeout) || !Number.isSafeInteger(timeoutMs) || timeoutMs > 2147483647) {
     throw new Error('OC_MCP_TIMEOUT_MS must be an integer from 1 to 2147483647');
   }
-  return { url, token, timeoutMs, sqlPrefixOnly: env.OC_MCP_READONLY === 'true' };
+  return { url, token, timeoutMs, sqlReadOnly: env.OC_MCP_READONLY === 'true' };
 }
 
 function readToken(env: NodeJS.ProcessEnv): string {

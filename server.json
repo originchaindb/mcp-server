@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.originchaindb/mcp-server",
+  "title": "OriginChainDB",
+  "description": "SQL, read-only graph, vector and full-text search tools for an OriginChainDB database.",
+  "repository": {
+    "url": "https://github.com/originchaindb/mcp-server",
+    "source": "github",
+    "id": "1272111399"
+  },
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@originchain-db/mcp-server",
+      "version": "0.4.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OC_URL",
+          "description": "Your database's address, copied from Connect.",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "OC_TOKEN",
+          "description": "An access token from Access tokens.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "OC_MCP_READONLY",
+          "description": "Set to true to make the SQL tool read-only: it then forwards only a single plain SELECT.",
+          "isRequired": false,
+          "format": "boolean",
+          "choices": ["true", "false"]
+        }
+      ]
+    }
+  ]
+}

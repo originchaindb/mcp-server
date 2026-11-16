@@ -1,7 +1,8 @@
 {
   "name": "@originchain-db/mcp-server",
-  "version": "0.3.0",
-  "description": "Model Context Protocol (MCP) server for OriginChain \u2014 exposes SQL, vector, full-text, and schema tools to Claude Desktop, Cursor, and any MCP-aware AI IDE.",
+  "version": "0.4.0",
+  "mcpName": "io.github.originchaindb/mcp-server",
+  "description": "Model Context Protocol (MCP) server for OriginChain \u2014 exposes SQL, read-only graph, vector, full-text, and schema tools to Claude Desktop, Cursor, and any MCP-aware AI IDE.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +17,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check:server-json": "node scripts/server-json.mjs",
+    "install-links": "node scripts/install-links.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -31,6 +34,8 @@
     "database",
     "vector",
     "sql",
+    "graph",
+    "cypher",
     "full-text-search"
   ],
   "homepage": "https://github.com/originchaindb/mcp-server#readme",
@@ -47,6 +52,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "typescript": "^5.5.0"
   }
 }
