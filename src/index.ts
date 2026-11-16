@@ -258,7 +258,9 @@ async function callSql(args: { sql: string; params?: unknown[] }, signal: AbortS
 // text, string literals and property names included, so a value that contains one
 // can only make a query count as a write; such values belong in `params`, which
 // are never scanned.
-const CYPHER_WRITE_WORDS = /\b(create|merge|set|delete|detach|remove|foreach|drop|load)\b/i;
+// IMPORT too, as the control plane's Cypher classifier lists it. CALL is not here: a CALL can write only through
+// a write clause inside it, which these words already refuse, and read-only CALL { ... } subqueries must work.
+const CYPHER_WRITE_WORDS = /\b(create|merge|set|delete|detach|remove|foreach|drop|load|import)\b/i;
 const GRAPH_READ_ONLY = "graph queries are read-only here; use oc_sql for writes";
 
 // POST /cypher {cypher, params, read_only: true, default_schema?}. With read_only

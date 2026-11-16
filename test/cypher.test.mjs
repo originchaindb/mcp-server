@@ -145,6 +145,7 @@ for (const query of [
   'MATCH (n:users) FOREACH (x IN [1] | CREATE (:audit))', 'MATCH (n:users) CALL { CREATE (:audit) } RETURN n',
   'DROP INDEX users_email', "LOAD CSV FROM 'file:///x' AS line RETURN line",
   "MATCH (n:users) WHERE n.note = 'set' RETURN n",
+  "IMPORT 'x'",
 ]) {
   test(`oc_cypher refuses ${JSON.stringify(query)} before HTTP`, { timeout }, async t => {
     const { client, requests } = await connect(t);
@@ -158,7 +159,7 @@ for (const query of [
 test('control: reads, and names that merely contain a write keyword, are forwarded', { timeout }, async t => {
   const { client, requests } = await connect(t);
   const reads = [
-    'MATCH (n:users) WHERE n.created_at > $since RETURN n.settings, n.deleted_flag, n.merged_into',
+    'MATCH (n:users) WHERE n.created_at > $since RETURN n.settings, n.deleted_flag, n.merged_into, n.imported',
     'OPTIONAL MATCH (a:users)-[:follows]->(b) WITH a, count(b) AS c UNWIND [1, 2] AS x RETURN a.id, c, x ORDER BY c DESC SKIP 1 LIMIT 5',
     'MATCH (n:users) CALL { MATCH (m:orders) RETURN count(m) AS c } RETURN n.id, c',
   ];

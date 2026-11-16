@@ -265,8 +265,8 @@ read-only here; use `oc_sql` for writes.** Every request carries
 database version that predates read-only graph requests may ignore that flag
 (or refuse every request that carries it, with HTTP 400), so this server also
 refuses, before sending anything, a query that contains
-`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH`, `REMOVE`, `FOREACH`, `DROP` or
-`LOAD` as a word anywhere in its text, in any letter case, string literals and
+`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH`, `REMOVE`, `FOREACH`, `DROP`,
+`LOAD` or `IMPORT` as a word anywhere in its text, in any letter case, string literals and
 property names included. Pass a value that contains such a word in `params`,
 which this check does not read. Each `params` value must be a string, number,
 boolean or null; lists and objects are refused before any request.
