@@ -31,15 +31,11 @@ Start with the [runnable examples](examples/README.md). For setup, tests and pac
 
 ## Install and connect
 
-Use Node.js 20 or later. Build the `0.3.0` package locally first:
+Use Node.js 20 or later. The server is published on npm as
+[`@originchain-db/mcp-server`](https://www.npmjs.com/package/@originchain-db/mcp-server):
 
 ```sh
-git clone https://github.com/originchaindb/mcp-server.git
-cd mcp-server
-npm ci
-npm test
-npm pack
-npx --yes --package ./originchain-mcp-server-0.3.0.tgz originchain-mcp
+npx --yes --package @originchain-db/mcp-server@0.3.0 originchain-mcp
 ```
 
 That command requires the environment variables below and waits for MCP
@@ -55,7 +51,7 @@ Connect, and an access token from Access tokens:
   "mcpServers": {
     "originchaindb": {
       "command": "npx",
-      "args": ["--yes", "--package", "/absolute/path/originchain-mcp-server-0.3.0.tgz", "originchain-mcp"],
+      "args": ["--yes", "--package", "@originchain-db/mcp-server@0.3.0", "originchain-mcp"],
       "env": {
         "OC_URL": "paste your database's address from Connect",
         "OC_TOKEN": "paste an access token from Access tokens"
@@ -74,8 +70,19 @@ tool execution depend on the host's settings.
 For a preinstalled executable instead of a package download at launch:
 
 ```sh
-npm install --global /absolute/path/originchain-mcp-server-0.3.0.tgz
+npm install --global @originchain-db/mcp-server@0.3.0
 originchain-mcp
+```
+
+To build the same package from source instead:
+
+```sh
+git clone https://github.com/originchaindb/mcp-server.git
+cd mcp-server
+npm ci
+npm test
+npm pack
+npx --yes --package ./originchain-db-mcp-server-0.3.0.tgz originchain-mcp
 ```
 
 Set your host's command to `originchain-mcp` and omit `args` for that installation.

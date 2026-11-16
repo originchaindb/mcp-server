@@ -27,10 +27,10 @@ def read_json(url):
 def check_existing(metadata, digest, version):
     if metadata is None:
         return False
-    if metadata.get('name') != '@originchain/mcp-server' or metadata.get('version') != version:
+    if metadata.get('name') != '@originchain-db/mcp-server' or metadata.get('version') != version:
         raise ValueError('Registry metadata mismatch')
     url = metadata.get('dist', {}).get('tarball', '')
-    if not url.startswith('https://registry.npmjs.org/@originchain/mcp-server/-/'):
+    if not url.startswith('https://registry.npmjs.org/@originchain-db/mcp-server/-/'):
         raise ValueError('Unexpected registry archive location')
     with urlopen(url, timeout=30) as response:
         public = hashlib.sha256(response.read()).hexdigest()

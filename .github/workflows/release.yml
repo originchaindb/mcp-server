@@ -111,9 +111,9 @@ jobs:
           mkdir "$RUNNER_TEMP/mcp-registry-consumer"
           cd "$RUNNER_TEMP/mcp-registry-consumer"
           npm init -y
-          npm install "@originchain/mcp-server@$RELEASE_VERSION" --ignore-scripts --registry=https://registry.npmjs.org
+          npm install "@originchain-db/mcp-server@$RELEASE_VERSION" --ignore-scripts --registry=https://registry.npmjs.org
           npm audit --json > "$GITHUB_WORKSPACE/release-dist/registry-audit.json"
-          MCP_SERVER_ENTRY="$RUNNER_TEMP/mcp-registry-consumer/node_modules/@originchain/mcp-server/dist/index.js" node "$GITHUB_WORKSPACE/test/readme-fixture.mjs" packed "$GITHUB_WORKSPACE/README.md" "$GITHUB_WORKSPACE/release-dist/${{ needs.select.outputs.archive }}" "$GITHUB_WORKSPACE/release-dist/registry-executable.json"
+          MCP_SERVER_ENTRY="$RUNNER_TEMP/mcp-registry-consumer/node_modules/@originchain-db/mcp-server/dist/index.js" node "$GITHUB_WORKSPACE/test/readme-fixture.mjs" packed "$GITHUB_WORKSPACE/README.md" "$GITHUB_WORKSPACE/release-dist/${{ needs.select.outputs.archive }}" "$GITHUB_WORKSPACE/release-dist/registry-executable.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -11,7 +11,9 @@ const readme = await readFile(readmePath, 'utf8');
 const examples = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
 const config = examples[0].mcpServers.originchaindb;
 assert.equal(config.command, 'npx');
-assert.deepEqual(config.args, ['--yes', '--package', '/absolute/path/originchain-mcp-server-0.3.0.tgz', 'originchain-mcp']);
+// The README installs the published package; the packed variant runs that same command against the packed archive.
+const PACKAGE_SPEC = '@originchain-db/mcp-server@0.3.0';
+assert.deepEqual(config.args, ['--yes', '--package', PACKAGE_SPEC, 'originchain-mcp']);
 // The README shows exactly the two application values.
 assert.deepEqual(Object.keys(config.env), ['OC_URL', 'OC_TOKEN']);
 const cases = [];
@@ -47,7 +49,7 @@ function start(overrides = {}) {
   for (const name of Object.keys(childEnv)) if (childEnv[name] === undefined) delete childEnv[name];
   const command = process.env.MCP_SERVER_ENTRY ? process.execPath : config.command;
   const args = process.env.MCP_SERVER_ENTRY ? [resolve(process.env.MCP_SERVER_ENTRY)]
-    : config.args.map(arg => arg.endsWith('.tgz') ? resolve(sourcePath) : arg);
+    : config.args.map(arg => arg === PACKAGE_SPEC ? resolve(sourcePath) : arg);
   const child = spawn(command, args, { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
   let buffer = '', stderr = '', nextId = 1;
   const pending = new Map();
